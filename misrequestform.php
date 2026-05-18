@@ -18,7 +18,7 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 <!DOCTYPE html>
 <html>
 <head>
-	<title>Create Task</title>
+	<title>MIS</title>
 	<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css">
 	<link rel="stylesheet" href="css/style.css">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -27,9 +27,12 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 <body class="requestform-body">
 
 	<section class="section-1">
-		<h4 class="title">Create Task</h4>
+		<div class="btn-container">
+			<a href="login" class="loginportal-btn">Admin Login</a>
+		</div>
+		<h4 class="title">MIS Job Order Form</h4>
 
-		<form class="form-1" method="POST" action="app/add-task.php">
+		<form class="form-1" method="POST" action="action/create_task.php">
 
 			<?php if (isset($_GET['error'])) { ?>
 				<div class="danger"><?= $_GET['error'] ?></div>
@@ -41,27 +44,27 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 
 			<div class="input-holder">
 				<label>Service Report No.</label>
-				<input type="text" class="input-1" value="<?= $next_report_id ?>" readonly>
+				<input name="report_id" type="text" class="input-1" value="<?= $next_report_id ?>" readonly>
 			</div>
 
 			<div class="input-holder">
 				<label>Title</label>
-				<input type="text" name="title" class="input-1">
+				<input name="title" type="text" class="input-1" placeholder="Enter title" required>
 			</div>
 
 			<div class="input-holder">
 				<label>Description</label>
-				<textarea name="description" class="input-1"></textarea>
+				<textarea name="description" class="input-1" placeholder="Enter Description" required></textarea>
 			</div>
 
 			<div class="input-holder">
 				<label>Due Date</label>
-				<input type="date" name="due_date" class="input-1">
+				<input name="due_date" type="date" class="input-1" required>
 			</div>
 
 			<div class="input-holder">
 				<label>Company</label>
-				<select name="company_name" class="input-1">
+				<select name="company_name" class="input-1" required>
 					<option value="">Select Company</option>
 					<?php foreach ($companies as $company) { ?>
 						<option value="<?=$company['comp_name']?>"><?=$company['comp_name']?></option>
@@ -70,8 +73,13 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 			</div>
 
 			<div class="input-holder">
+				<label>Requested By</label>
+				<input name="requested_by" type="text" class="input-1" placeholder="Requested By" required>
+			</div>
+
+			<div class="input-holder">
 				<label>Assign To</label>
-				<select name="assigned_to" class="input-1">
+				<select name="assigned_to" class="input-1" required>
 					<option value="">Select User</option>
 					<?php foreach ($users as $user) { ?>
 						<option value="<?=$user['id']?>"><?=$user['full_name']?></option>
@@ -79,7 +87,7 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 				</select>
 			</div>
 
-			<button class="edit-btn">Create Task</button>
+			<button class="edit-btn">Done</button>
 
 		</form>
 	</section>

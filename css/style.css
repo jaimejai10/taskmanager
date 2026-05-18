@@ -397,3 +397,27 @@
 		width: 100%;
 	}
 }
+
+.loginportal-btn {
+    width: 30%;
+    float: right;
+}
+
+.btn-container {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.loginportal-btn {
+    text-decoration: none;
+    display: inline-block;
+    padding: 5px 20px;
+    background: #ffffff;
+    color: #000000;
+    font-size: 16px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background 1s;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2),
+                0 3px 10px rgba(0,0,0,0.19);
+}
