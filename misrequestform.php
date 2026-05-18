@@ -28,9 +28,9 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 
 	<section class="section-1">
 		<div class="btn-container">
+			<h4 class="title">MIS Job Order Form</h4>
 			<a href="login" class="loginportal-btn">Admin Login</a>
 		</div>
-		<h4 class="title">MIS Job Order Form</h4>
 
 		<form class="form-1" method="POST" action="action/create_task.php">
 
@@ -59,7 +59,7 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 
 			<div class="input-holder">
 				<label>Due Date</label>
-				<input name="due_date" type="date" class="input-1" required>
+				<input name="due_date" type="date" class="input-1" required min="<?= date('Y-m-d') ?>">
 			</div>
 
 			<div class="input-holder">

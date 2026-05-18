@@ -10,8 +10,8 @@ function validate_input($data) {
 
 function insert_task($conn, $data_task){
 	$sql = "INSERT INTO tasks 
-	(report_id, title, description, company_name, requested_by, assigned_to, due_date) 
-	VALUES(?,?,?,?,?,?,?)";
+		(report_id, title, description, company_name, requested_by, assigned_to, due_date, requester_ipadd, device_info)
+	VALUES(?,?,?,?,?,?,?,?,?)";
 
 	$stmt = $conn->prepare($sql);
 	$stmt->execute($data_task);
@@ -43,6 +43,8 @@ if (
 	$company_name= validate_input($_POST['company_name']);
 	$requested_by= validate_input($_POST['requested_by']);
 	$assigned_to = validate_input($_POST['assigned_to']);
+	$ip_address = $_SERVER['REMOTE_ADDR'];
+	$device_info = $_SERVER['HTTP_USER_AGENT'];
 
 	$data_task = array(
 		$report_id,
@@ -51,7 +53,9 @@ if (
 		$company_name,
 		$requested_by,
 		$assigned_to,
-		$due_date
+		$due_date,
+		$ip_address,
+		$device_info
 	);
 
 	insert_task($conn, $data_task);
