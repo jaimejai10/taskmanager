@@ -29,7 +29,7 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 	<section class="section-1">
 		<div class="btn-container">
 			<h4 class="title">MIS Job Order Form</h4>
-			<a href="login" class="loginportal-btn">Admin Login</a>
+			<a href="login.php" class="loginportal-btn">Admin Login</a>
 		</div>
 
 		<form class="form-1" method="POST" action="action/create_task.php">
