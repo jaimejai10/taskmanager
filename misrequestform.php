@@ -58,8 +58,8 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 			</div>
 
 			<div class="input-holder">
-				<label>Due Date</label>
-				<input name="due_date" type="date" class="input-1" required min="<?= date('Y-m-d') ?>">
+				<label>Due (optional)</label>
+				<input name="due_date" type="date" class="input-1" min="<?= date('Y-m-d') ?>">
 			</div>
 
 			<div class="input-holder">
