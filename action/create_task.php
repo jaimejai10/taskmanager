@@ -10,8 +10,8 @@ function validate_input($data) {
 
 function insert_task($conn, $data_task){
 	$sql = "INSERT INTO tasks 
-		(report_id, title, description, company_name, requested_by, assigned_to, due_date, requester_ipadd, device_info)
-	VALUES(?,?,?,?,?,?,?,?,?)";
+		(report_id, category, title, description, company_name, requested_by, assigned_to, due_date, requester_ipadd, device_info)
+	VALUES(?,?,?,?,?,?,?,?,?,?)";
 
 	$stmt = $conn->prepare($sql);
 	$stmt->execute($data_task);
@@ -28,6 +28,7 @@ function insert_notification($conn, $notif_data){
 
 if (
 	isset($_POST['report_id']) &&
+	isset($_POST['category']) &&
 	isset($_POST['title']) &&
 	isset($_POST['description']) &&
 	isset($_POST['due_date']) &&
@@ -37,6 +38,7 @@ if (
 ) {
 
 	$report_id   = validate_input($_POST['report_id']);
+	$category    = validate_input($_POST['category']);
 	$title       = validate_input($_POST['title']);
 	$description = validate_input($_POST['description']);
 	$due_date    = validate_input($_POST['due_date']);
@@ -48,6 +50,7 @@ if (
 
 	$data_task = array(
 		$report_id,
+		$category,
 		$title,
 		$description,
 		$company_name,

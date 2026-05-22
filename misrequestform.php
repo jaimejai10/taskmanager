@@ -27,9 +27,10 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 <body class="requestform-body">
 
 	<section class="section-1">
-		<div class="btn-container">
+		<div class="header-bar">
 			<h4 class="title">MIS Job Order Form</h4>
-			<a href="login.php" class="loginportal-btn">Admin Login</a>
+
+			<a href="login.php" class="admin-icon-btn">🔐</a>
 		</div>
 
 		<form class="form-1" method="POST" action="action/create_task.php">
@@ -46,16 +47,45 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 				<label>Service Report No.</label>
 				<input name="report_id" type="text" class="input-1" value="<?= $next_report_id ?>" readonly>
 			</div>
-
+			
 			<div class="input-holder">
-				<label>Title</label>
-				<input name="title" type="text" class="input-1" placeholder="Enter title" required>
+				<label>Category</label>
+				<select name="category" class="input-1" id="category" onchange="showHint()">
+					<option value="" disabled selected>Select Category</option>
+					<option value="Network">Network</option>
+					<option value="Printer">Printer</option>
+					<option value="Hardware">Hardware</option>
+					<option value="Software">Software</option>
+					<option value="Email">Email</option>
+					<option value="Internet">Internet</option>
+					<option value="Account">Account</option>
+					<option value="CCTV">CCTV</option>
+					<option value="Maintenance">Maintenance</option>
+					<option value="Device">Device</option>
+
+					<!-- Advanced / Enterprise Level -->
+					<option value="Server">Server</option>
+					<option value="Cloud / System">Cloud / System</option>
+					<option value="Security">Security</option>
+					<option value="Backup / Data">Backup / Data</option>
+					<option value="User Management">User Management</option>
+					<option value="Others">Others</option>
+				</select>
 			</div>
 
 			<div class="input-holder">
-				<label>Description</label>
-				<textarea name="description" class="input-1" placeholder="Enter Description" required></textarea>
+				<label>Request Summary</label>
+				<input name="title" type="text" class="input-1" placeholder="Request title" required>
 			</div>
+
+			<div class="input-holder">
+				<label>Description / Problem Details (optional)</label>
+				<textarea name="description" id="description" class="input-1" placeholder="Enter Description" ></textarea>
+				<small id="description-error" style="color: red; display:none;">
+					Description is required when Category is Others.
+				</small>
+			</div>
+
 
 			<div class="input-holder">
 				<label>Due (optional)</label>
@@ -82,15 +112,52 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 				<select name="assigned_to" class="input-1" required>
 					<option value="">Select User</option>
 					<?php foreach ($users as $user) { ?>
-						<option value="<?=$user['id']?>"><?=$user['full_name']?></option>
+						<option value="<?=$user['user_id']?>"><?=$user['full_name']?></option>
 					<?php } ?>
 				</select>
 			</div>
 
-			<button class="edit-btn">Done</button>
+			<button type="submit" class="edit-btn">Done</button>
 
 		</form>
 	</section>
 
 </body>
 </html>
+
+<!-- Validation for others -->
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+    const form = document.querySelector("form");
+    const category = document.getElementById("category");
+    const description = document.getElementById("description");
+    const error = document.getElementById("description-error");
+
+    form.addEventListener("submit", function (e) {
+
+        if (category.value === "Others" && description.value.trim() === "") {
+
+            e.preventDefault();
+
+            error.style.display = "block";
+            description.focus();
+
+        } else {
+            error.style.display = "none";
+        }
+
+    });
+
+});
+
+//clear Page Link
+window.onload = function () {
+    const url = new URL(window.location);
+
+    if (url.searchParams.has("success")) {
+        url.searchParams.delete("success");
+        window.history.replaceState({}, document.title, url.pathname);
+    }
+};
+</script>
