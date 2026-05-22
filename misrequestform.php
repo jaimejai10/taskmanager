@@ -28,8 +28,7 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 
 	<section class="section-1">
 		<div class="header-bar">
-			<h4 class="title">MIS Job Order Form</h4>
-
+			<h2 class="title">MIS Job Order Form</h2>
 			<a href="login.php" class="admin-icon-btn">🔐</a>
 		</div>
 
