@@ -1,6 +1,6 @@
 <?php 
 session_start();
-if (isset($_SESSION['role']) && isset($_SESSION['id']) && $_SESSION['role'] == "admin") {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id']) && $_SESSION['role'] == "admin") {
     include "DB_connection.php";
     include "app/Model/User.php";
 
@@ -43,8 +43,8 @@ if (isset($_SESSION['role']) && isset($_SESSION['id']) && $_SESSION['role'] == "
 					<td><?=$user['username']?></td>
 					<td><?=$user['role']?></td>
 					<td>
-						<a href="edit-user.php?id=<?=$user['id']?>" class="edit-btn">Edit</a>
-						<a href="delete-user.php?id=<?=$user['id']?>" class="delete-btn">Delete</a>
+						<a href="edit-user.php?id=<?=$user['user_id']?>" class="edit-btn">Edit</a>
+						<a href="delete-user.php?id=<?=$user['user_id']?>" class="delete-btn">Delete</a>
 					</td>
 				</tr>
 			   <?php	} ?>

@@ -1,11 +1,11 @@
 <?php 
 session_start();
-if (isset($_SESSION['role']) && isset($_SESSION['id'])) {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id'])) {
     include "DB_connection.php";
     include "app/Model/Task.php";
     include "app/Model/User.php";
 
-    $tasks = get_all_tasks_by_id($conn, $_SESSION['id']);
+    $tasks = get_all_tasks_by_id($conn, $_SESSION['user_id']);
 
  ?>
 <!DOCTYPE html>
@@ -51,7 +51,7 @@ if (isset($_SESSION['role']) && isset($_SESSION['id'])) {
 	            	<td><?=$task['due_date']?></td>
 
 					<td>
-						<a href="edit-task-employee.php?id=<?=$task['id']?>" class="edit-btn">Edit</a>
+						<a href="edit-task-employee.php?id=<?=$task['task_id']?>" class="edit-btn">Edit</a>
 					</td>
 				</tr>
 			   <?php	} ?>

@@ -1,6 +1,6 @@
 <?php 
 session_start();
-if (isset($_SESSION['role']) && isset($_SESSION['id'])) {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id'])) {
 
 if (isset($_POST['confirm_password']) && isset($_POST['new_password']) && isset($_POST['password']) && isset($_POST['full_name']) && $_SESSION['role'] == 'employee') {
 	include "../DB_connection.php";
@@ -17,7 +17,7 @@ if (isset($_POST['confirm_password']) && isset($_POST['new_password']) && isset(
 	$full_name = validate_input($_POST['full_name']);
 	$new_password = validate_input($_POST['new_password']);
 	$confirm_password = validate_input($_POST['confirm_password']);
-   $id = $_SESSION['id'];
+   $id = $_SESSION['user_id'];
 
 	if (empty($password) || empty($new_password) || empty($confirm_password) ) {
 		$em = "Password is required";

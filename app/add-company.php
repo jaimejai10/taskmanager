@@ -1,7 +1,7 @@
 <?php
 session_start();
 
-if (!isset($_SESSION['role']) || !isset($_SESSION['id'])) {
+if (!isset($_SESSION['role']) || !isset($_SESSION['user_id'])) {
     $em = "First login";
     header("Location: ../add-company.php?error=$em");
     exit();

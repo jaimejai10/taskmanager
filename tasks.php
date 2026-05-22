@@ -1,6 +1,6 @@
 <?php 
 session_start();
-if (isset($_SESSION['role']) && isset($_SESSION['id']) && $_SESSION['role'] == "admin") {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id']) && $_SESSION['role'] == "admin") {
     include "DB_connection.php";
     include "app/Model/Task.php";
     include "app/Model/User.php";
@@ -80,7 +80,7 @@ if (isset($_SESSION['role']) && isset($_SESSION['id']) && $_SESSION['role'] == "
 					<td>
 						<?php 
                   foreach ($users as $user) {
-						if($user['id'] == $task['assigned_to']){
+						if($user['user_id'] == $task['assigned_to']){
 							echo $user['full_name'];
 						}}?>
 	            </td>
@@ -89,8 +89,8 @@ if (isset($_SESSION['role']) && isset($_SESSION['id']) && $_SESSION['role'] == "
 	               ?></td>
 	            <td><?=$task['status']?></td>
 					<td>
-						<a href="edit-task.php?id=<?=$task['id']?>" class="edit-btn">Edit</a>
-						<a href="delete-task.php?id=<?=$task['id']?>" class="delete-btn">Delete</a>
+						<a href="edit-task.php?id=<?=$task['task_id']?>" class="edit-btn">Edit</a>
+						<a href="delete-task.php?id=<?=$task['task_id']?>" class="delete-btn">Delete</a>
 					</td>
 				</tr>
 			   <?php	} ?>

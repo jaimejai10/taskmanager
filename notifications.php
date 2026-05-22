@@ -1,11 +1,11 @@
 <?php 
 session_start();
-if (isset($_SESSION['role']) && isset($_SESSION['id'])) {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id'])) {
     include "DB_connection.php";
     include "app/Model/Notification.php";
     // include "app/Model/User.php";
 
-    $notifications = get_all_my_notifications($conn, $_SESSION['id']);
+    $notifications = get_all_my_notifications($conn, $_SESSION['user_id']);
 
  ?>
 <!DOCTYPE html>

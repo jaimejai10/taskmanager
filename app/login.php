@@ -32,18 +32,18 @@ if (isset($_POST['user_name']) && isset($_POST['password'])) {
        	   $usernameDb = $user['username'];
        	   $passwordDb = $user['password'];
        	   $role = $user['role'];
-       	   $id = $user['id'];
+       	   $id = $user['user_id'];
 
        	   if ($user_name === $usernameDb) {
 	       	   	if (password_verify($password, $passwordDb)) {
 	       	   		if ($role == "admin") {
 	       	   			$_SESSION['role'] = $role;
-	       	   			$_SESSION['id'] = $id;
+	       	   			$_SESSION['user_id'] = $id;
 	       	   			$_SESSION['username'] = $usernameDb;
                         header("Location: ../index.php");
 	       	   		}else if ($role == 'employee') {
 	       	   			$_SESSION['role'] = $role;
-	       	   			$_SESSION['id'] = $id;
+	       	   			$_SESSION['user_id'] = $id;
 	       	   			$_SESSION['username'] = $usernameDb;
                         header("Location: ../index.php");
 	       	   		}else {

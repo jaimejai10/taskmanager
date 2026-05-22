@@ -1,6 +1,6 @@
 <?php 
 session_start();
-if (isset($_SESSION['role']) && isset($_SESSION['id']) && $_SESSION['role'] == "admin") {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id']) && $_SESSION['role'] == "admin") {
     include "DB_connection.php";
     include "app/Model/User.php";
     
@@ -58,7 +58,7 @@ if (isset($_SESSION['role']) && isset($_SESSION['id']) && $_SESSION['role'] == "
 					<lable>Password</lable>
 					<input type="text" value="**********" name="password" class="input-1" placeholder="Password"><br>
 				</div>
-				<input type="text" name="id" value="<?=$user['id']?>" hidden>
+				<input type="text" name="id" value="<?=$user['user_id']?>" hidden>
 
 				<button class="edit-btn">Update</button>
 			</form>

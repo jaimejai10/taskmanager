@@ -1,6 +1,6 @@
 <?php 
 session_start();
-if (isset($_SESSION['role']) && isset($_SESSION['id'])) {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id'])) {
 
 if (isset($_POST['id']) && isset($_POST['status']) && $_SESSION['role'] == 'employee') {
 	include "../DB_connection.php";

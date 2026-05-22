@@ -1,12 +1,12 @@
 <?php 
 session_start();
-if (isset($_SESSION['role']) && isset($_SESSION['id'])) {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id'])) {
     include "../DB_connection.php";
     include "Model/Notification.php";
 
    if (isset($_GET['notification_id'])) {
        $notification_id = $_GET['notification_id'];
-       notification_make_read($conn, $_SESSION['id'], $notification_id);
+       notification_make_read($conn, $_SESSION['user_id'], $notification_id);
        header("Location: ../notifications.php");
        exit();
 

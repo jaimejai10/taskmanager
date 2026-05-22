@@ -20,20 +20,20 @@ function insert_user($conn, $data){
 }
 
 function update_user($conn, $data){
-	$sql = "UPDATE users SET full_name=?, username=?, password=?, role=? WHERE id=? AND role=?";
+	$sql = "UPDATE users SET full_name=?, username=?, password=?, role=? WHERE user_id=? AND role=?";
 	$stmt = $conn->prepare($sql);
 	$stmt->execute($data);
 }
 
 function delete_user($conn, $data){
-	$sql = "DELETE FROM users WHERE id=? AND role=?";
+	$sql = "DELETE FROM users WHERE user_id=? AND role=?";
 	$stmt = $conn->prepare($sql);
 	$stmt->execute($data);
 }
 
 
 function get_user_by_id($conn, $id){
-	$sql = "SELECT * FROM users WHERE id =? ";
+	$sql = "SELECT * FROM users WHERE user_id =? ";
 	$stmt = $conn->prepare($sql);
 	$stmt->execute([$id]);
 
@@ -45,13 +45,13 @@ function get_user_by_id($conn, $id){
 }
 
 function update_profile($conn, $data){
-	$sql = "UPDATE users SET full_name=?,  password=? WHERE id=? ";
+	$sql = "UPDATE users SET full_name=?,  password=? WHERE user_id=? ";
 	$stmt = $conn->prepare($sql);
 	$stmt->execute($data);
 }
 
 function count_users($conn){
-	$sql = "SELECT id FROM users WHERE role='employee'";
+	$sql = "SELECT user_id FROM users WHERE role='employee'";
 	$stmt = $conn->prepare($sql);
 	$stmt->execute([]);
 

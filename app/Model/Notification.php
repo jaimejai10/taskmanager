@@ -14,7 +14,7 @@ function get_all_my_notifications($conn, $id){
 
 
 function count_notification($conn, $id){
-	$sql = "SELECT id FROM notifications WHERE recipient=? AND is_read=0";
+	$sql = "SELECT notif_id FROM notifications WHERE recipient=? AND is_read=0";
 	$stmt = $conn->prepare($sql);
 	$stmt->execute([$id]);
 
@@ -28,7 +28,7 @@ function insert_notification($conn, $data){
 }
 
 function notification_make_read($conn, $recipient_id, $notification_id){
-	$sql = "UPDATE notifications SET is_read=1 WHERE id=? AND recipient=?";
+	$sql = "UPDATE notifications SET is_read=1 WHERE notif_id=? AND recipient=?";
 	$stmt = $conn->prepare($sql);
 	$stmt->execute([$notification_id, $recipient_id]);
 }

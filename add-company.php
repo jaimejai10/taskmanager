@@ -1,7 +1,7 @@
 <?php 
 session_start();
 
-if (isset($_SESSION['role']) && isset($_SESSION['id'])) {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id'])) {
 
     if (isset($_POST['comp_name']) && isset($_POST['comp_address']) && isset($_POST['tin']) && isset($_POST['business_type']) && $_SESSION['role'] == 'admin') {
         

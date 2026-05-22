@@ -1,6 +1,6 @@
 <?php 
 session_start();
-if (isset($_SESSION['role']) && isset($_SESSION['id']) && $_SESSION['role'] == "employee") {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id']) && $_SESSION['role'] == "employee") {
     include "DB_connection.php";
     include "app/Model/Task.php";
     include "app/Model/User.php";
@@ -64,7 +64,7 @@ if (isset($_SESSION['role']) && isset($_SESSION['id']) && $_SESSION['role'] == "
 						<option <?php if( $task['status'] == "completed") echo"selected"; ?>>completed</option>
 					</select><br>
 				</div>
-				<input type="text" name="id" value="<?=$task['id']?>" hidden>
+				<input type="text" name="id" value="<?=$task['task_id']?>" hidden>
 
 				<button class="edit-btn">Update</button>
 			</form>

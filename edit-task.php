@@ -1,6 +1,6 @@
 <?php 
 session_start();
-if (isset($_SESSION['role']) && isset($_SESSION['id']) && $_SESSION['role'] == "admin") {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id']) && $_SESSION['role'] == "admin") {
     include "DB_connection.php";
     include "app/Model/Task.php";
     include "app/Model/User.php";
@@ -72,14 +72,14 @@ if (isset($_SESSION['role']) && isset($_SESSION['id']) && $_SESSION['role'] == "
 						<option value="0">Select employee</option>
 						<?php if ($users !=0) { 
 							foreach ($users as $user) {
-								if ($task['assigned_to'] == $user['id']) { ?>
-									<option selected value="<?=$user['id']?>"><?=$user['full_name']?></option>
+								if ($task['assigned_to'] == $user['user_id']) { ?>
+									<option selected value="<?=$user['user_id']?>"><?=$user['full_name']?></option>
 						<?php }else{ ?>
-                  <option value="<?=$user['id']?>"><?=$user['full_name']?></option>
+                  <option value="<?=$user['user_id']?>"><?=$user['full_name']?></option>
 						<?php } } } ?>
 					</select><br>
 				</div>
-				<input type="text" name="id" value="<?=$task['id']?>" hidden>
+				<input type="text" name="id" value="<?=$task['task_id']?>" hidden>
 
 				<button class="edit-btn">Update</button>
 			</form>

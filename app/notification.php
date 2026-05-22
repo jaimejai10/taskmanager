@@ -1,11 +1,11 @@
 <?php 
 session_start();
-if (isset($_SESSION['role']) && isset($_SESSION['id'])) {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id'])) {
     include "../DB_connection.php";
     include "Model/Notification.php";
 
 
-    $notifications = get_all_my_notifications($conn, $_SESSION['id']);
+    $notifications = get_all_my_notifications($conn, $_SESSION['user_id']);
     if ($notifications == 0) { ?>
         <li>
         <a href="#">
@@ -17,7 +17,7 @@ if (isset($_SESSION['role']) && isset($_SESSION['id'])) {
     foreach ($notifications as $notification) {
  ?>
     <li>
-    <a href="app/notification-read.php?notification_id=<?=$notification['id']?>">
+    <a href="app/notification-read.php?notification_id=<?=$notification['notif_id']?>">
         
         <?php if ($notification['is_read'] == 0) {
             echo "<mark>".$notification['type']."</mark>: ";

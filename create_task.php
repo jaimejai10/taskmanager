@@ -1,6 +1,6 @@
 <?php 
 session_start();
-if (isset($_SESSION['role']) && isset($_SESSION['id']) && $_SESSION['role'] == "admin") {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id']) && $_SESSION['role'] == "admin") {
     include "DB_connection.php";
     include "app/Model/User.php";
 	include "app/Model/Company.php";
@@ -83,7 +83,7 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 						<?php if ($users !=0) { 
 							foreach ($users as $user) {
 						?>
-                  <option value="<?=$user['id']?>"><?=$user['full_name']?></option>
+                  <option value="<?=$user['user_id']?>"><?=$user['full_name']?></option>
 						<?php } } ?>
 					</select><br>
 				</div>

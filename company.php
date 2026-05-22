@@ -1,7 +1,7 @@
 <?php 
 session_start();
 
-if (isset($_SESSION['role']) && isset($_SESSION['id']) && $_SESSION['role'] == "admin") {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id']) && $_SESSION['role'] == "admin") {
 
     include "DB_connection.php";
     include "app/Model/Company.php";

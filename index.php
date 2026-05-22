@@ -1,6 +1,6 @@
 <?php 
 session_start();
-if (isset($_SESSION['role']) && isset($_SESSION['id']) ) {
+if (isset($_SESSION['role']) && isset($_SESSION['user_id']) ) {
 
 	 include "DB_connection.php";
     include "app/Model/Task.php";
@@ -16,12 +16,12 @@ if (isset($_SESSION['role']) && isset($_SESSION['id']) ) {
 	     $in_progress = count_in_progress_tasks($conn);
 	     $completed = count_completed_tasks($conn);
 	}else {
-        $num_my_task = count_my_tasks($conn, $_SESSION['id']);
-        $overdue_task = count_my_tasks_overdue($conn, $_SESSION['id']);
-        $nodeadline_task = count_my_tasks_NoDeadline($conn, $_SESSION['id']);
-        $pending = count_my_pending_tasks($conn, $_SESSION['id']);
-	     $in_progress = count_my_in_progress_tasks($conn, $_SESSION['id']);
-	     $completed = count_my_completed_tasks($conn, $_SESSION['id']);
+        $num_my_task = count_my_tasks($conn, $_SESSION['user_id']);
+        $overdue_task = count_my_tasks_overdue($conn, $_SESSION['user_id']);
+        $nodeadline_task = count_my_tasks_NoDeadline($conn, $_SESSION['user_id']);
+        $pending = count_my_pending_tasks($conn, $_SESSION['user_id']);
+	     $in_progress = count_my_in_progress_tasks($conn, $_SESSION['user_id']);
+	     $completed = count_my_completed_tasks($conn, $_SESSION['user_id']);
 
 	}
  ?>
