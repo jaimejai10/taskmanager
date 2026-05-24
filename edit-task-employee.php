@@ -51,15 +51,26 @@ if (isset($_SESSION['role']) && isset($_SESSION['user_id']) && $_SESSION['role']
 					<lable></lable>
 					<p><b>Title: </b><?=$task['title']?></p>
 				</div>
+				
 				<div class="input-holder">
 					<lable></lable>
 					<p><b>Description: </b><?=$task['description']?></p>
+				</div><br>
+
+				<div class="input-holder">
+				<label>Diagnosis</label>
+				<textarea name="diagnosis" class="input-1" placeholder="Enter diagnosis of the issue"></textarea>
+				</div><br>
+
+				<div class="input-holder">
+					<label>Recommendation</label>
+					<textarea name="recommendation" class="input-1" placeholder="Enter recommended solution"></textarea>
 				</div><br>
             <div class="input-holder">
 					<lable>Status</lable>
 					<select name="status" class="input-1">
 						<option 
-						      <?php if( $task['status'] == "pending") echo"selected"; ?> >pending</option>
+						<?php if( $task['status'] == "pending") echo"selected"; ?> >pending</option>
 						<option <?php if( $task['status'] == "in_progress") echo"selected"; ?>>in_progress</option>
 						<option <?php if( $task['status'] == "completed") echo"selected"; ?>>completed</option>
 					</select><br>
