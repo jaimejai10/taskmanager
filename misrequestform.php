@@ -10,9 +10,15 @@ $companies = get_all_companies($conn);
 $sql = "SELECT MAX(report_id) AS last_id FROM tasks";
 $stmt = $conn->prepare($sql);
 $stmt->execute();
+
 $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-$next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
+// start from 1 if empty
+$next_id = $row['last_id'] ? $row['last_id'] + 1 : 1;
+
+// keep 6 digits
+$next_report_id = str_pad($next_id, 6, "0", STR_PAD_LEFT);
+
 ?>
 
 <!DOCTYPE html>
@@ -73,7 +79,7 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 			</div>
 
 			<div class="input-holder">
-				<label>Request Summary</label>
+				<label>Request Title</label>
 				<input name="title" type="text" class="input-1" placeholder="Request title" required>
 			</div>
 
@@ -104,6 +110,15 @@ $next_report_id = $row['last_id'] ? $row['last_id'] + 1 : 100;
 			<div class="input-holder">
 				<label>Requested By</label>
 				<input name="requested_by" type="text" class="input-1" placeholder="Requested By" required>
+			</div>
+
+			<div class="input-holder">
+				<label>Requester No.</label>
+				<input id="requester_no" name="requester_no" type="text" class="input-1" placeholder="09XXXXXXXXX" required>
+
+				<small id="phone-hint" style="color:red; display:none;">
+					Please enter a valid Philippine mobile number (09XXXXXXXXX)
+				</small>
 			</div>
 
 			<div class="input-holder">
@@ -159,4 +174,26 @@ window.onload = function () {
         window.history.replaceState({}, document.title, url.pathname);
     }
 };
+
+
+document.querySelector("form").addEventListener("submit", function(e) {
+
+    let phone = document.getElementById("requester_no").value.trim();
+    let hint = document.getElementById("phone-hint");
+
+    // PH number rule: 09 + 9 digits
+    let pattern = /^09\d{9}$/;
+
+    if (!pattern.test(phone)) {
+
+        e.preventDefault(); // stop submit
+
+        hint.style.display = "block";
+
+        document.getElementById("requester_no").focus();
+    } else {
+        hint.style.display = "none";
+    }
+
+});
 </script>
