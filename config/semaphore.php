@@ -1,0 +1,6 @@
+<?php
+
+define('SEMAPHORE_API_KEY', '95fb7617a1881e187323558ae0d5dfd9');
+define('SEMAPHORE_SENDER', 'MABUHAYONE');
+
+?>

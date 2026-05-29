@@ -182,16 +182,15 @@ document.querySelector("form").addEventListener("submit", function(e) {
     let phone = document.getElementById("requester_no").value.trim();
     let hint = document.getElementById("phone-hint");
 
-    // PH number rule: 09 + 9 digits
     let pattern = /^09\d{9}$/;
 
-    if (!pattern.test(phone)) {
+    // ONLY validate if NOT empty
+    if (phone !== "" && !pattern.test(phone)) {
 
         e.preventDefault(); // stop submit
-
         hint.style.display = "block";
-
         document.getElementById("requester_no").focus();
+
     } else {
         hint.style.display = "none";
     }
