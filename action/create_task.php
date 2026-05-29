@@ -20,6 +20,20 @@ $company_name = $company['comp_name'] ?? 'Unknown Company';
 $mobile_no = $company['mobile_no'] ?? 'N/A';
 $messenger_link = $company['messenger_link'] ?? '#';
 
+$company_codes = [
+    1 => 'MOC',    // MABUHAYONE CORPORATION
+    2 => 'HCGS',   // Honda Cars General Santos, INC.
+    3 => 'PRB',    // Peoples Rural Bank
+    4 => 'ECA BLDG',    // ECA Resources, Inc./ECA building
+	5 => 'MOC',    // Buildtolast Corporation
+    6 => 'CSP',   // ECA Resources, INC./Cold Store Plus
+    7 => 'Mincorn',    // Mincorn Corporation
+    8 => 'Dalan Mindanao',    // Dalan Mindanao (A Foundatio), INC.
+	9 => 'ECALANDS',    // Ecalands Corporation
+];
+
+$company_short = $company_codes[$company_id] ?? $company_name;
+
 
 //fetch users details start
 $assigned_to_id = $_POST['assigned_to_id'];
@@ -79,7 +93,7 @@ if (isset($_POST['report_id']) && isset($_POST['category']) && isset($_POST['tit
 	$ip_address = $_SERVER['REMOTE_ADDR'];
 	$device_info = $_SERVER['HTTP_USER_AGENT'];
 	
-	$message = "GOOD DAY {$assigned_name},\n\n"
+/* 	$message = "GOOD DAY {$assigned_name},\n\n"
 			. "You have been assigned a new task.\n\n"
 			. "Company: {$company_name}\n"
 			. "Report ID: #{$report_id}\n"
@@ -87,7 +101,13 @@ if (isset($_POST['report_id']) && isset($_POST['category']) && isset($_POST['tit
 			. "Description: {$description}\n\n"
 			. "CP No.: {$final_number}\n"
 			. "Messenger: {$messenger_link}\n\n"
-			. "— MIS Support Team";
+			. "— MIS Support Team"; */
+
+			$message = "NEW TASK ASSIGNED\n\n"
+			. "Company: {$company_short}\n"
+			. "Report ID: #{$report_id}\n"
+			. "Title: {$title}\n\n"
+			. "Please log in to your account for full task details.";
 
 	$data_task = array($report_id, $category, $title, $description, $company_id, $requested_by, $requester_no, $assigned_to_id, $due_date, $ip_address, $device_info);
 
