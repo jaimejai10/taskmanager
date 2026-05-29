@@ -67,7 +67,6 @@ $next_report_id = str_pad($next_id, 6, "0", STR_PAD_LEFT);
 					<option value="CCTV">CCTV</option>
 					<option value="Maintenance">Maintenance</option>
 					<option value="Device">Device</option>
-
 					<!-- Advanced / Enterprise Level -->
 					<option value="Server">Server</option>
 					<option value="Cloud / System">Cloud / System</option>
@@ -99,10 +98,12 @@ $next_report_id = str_pad($next_id, 6, "0", STR_PAD_LEFT);
 
 			<div class="input-holder">
 				<label>Company</label>
-				<select name="company_name" class="input-1" required>
+				<select name="company_id" class="input-1" required>
 					<option value="">Select Company</option>
 					<?php foreach ($companies as $company) { ?>
-						<option value="<?=$company['comp_name']?>"><?=$company['comp_name']?></option>
+						<option value="<?=$company['comp_id']?>">
+							<?=$company['comp_name']?>
+						</option>
 					<?php } ?>
 				</select>
 			</div>
@@ -114,16 +115,16 @@ $next_report_id = str_pad($next_id, 6, "0", STR_PAD_LEFT);
 
 			<div class="input-holder">
 				<label>Requester No.</label>
-				<input id="requester_no" name="requester_no" type="text" class="input-1" placeholder="09XXXXXXXXX" required>
+				<input id="requester_no" name="requester_no" type="text" class="input-1" placeholder="09XXXXXXXXX">
 
 				<small id="phone-hint" style="color:red; display:none;">
-					Please enter a valid Philippine mobile number (09XXXXXXXXX)
+					Please enter a valid mobile number (09XXXXXXXXX)
 				</small>
 			</div>
 
 			<div class="input-holder">
 				<label>Assign To</label>
-				<select name="assigned_to" class="input-1" required>
+				<select name="assigned_to_id" class="input-1" required>
 					<option value="">Select User</option>
 					<?php foreach ($users as $user) { ?>
 						<option value="<?=$user['user_id']?>"><?=$user['full_name']?></option>
