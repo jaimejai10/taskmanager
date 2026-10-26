@@ -59,8 +59,25 @@ $next_report_id = str_pad($next_id, 6, "0", STR_PAD_LEFT);
             <div class="section-title"><span class="section-icon">📄</span>1. Request Information</div>
             <div class="section-body">
                 <div class="field"><label for="category">Category <span class="required">*</span></label>
-                    <select name="category" id="category" required>
-                        <option value="">Select Category</option><option>Network</option><option>Printer</option><option>Hardware</option><option>Software</option><option>Email</option><option>Internet</option><option>Account</option><option>CCTV</option><option>Maintenance</option><option>Device</option><option>Others</option>
+                    <select name="category" id="category" class="form-control" required>
+                        <option value="">Select Category</option>
+                        <option value="Network">Network</option>
+                        <option value="Internet">Internet</option>
+                        <option value="Wi-Fi">Wi-Fi</option>
+                        <option value="Printer">Printer</option>
+                        <option value="Hardware">Hardware</option>
+                        <option value="Software">Software</option>
+                        <option value="System/Application">System/Application</option>
+                        <option value="Installation Request">Installation Request</option>
+                        <option value="Email">Email</option>
+                        <option value="Account">Account</option>
+                        <option value="Password Reset">Password Reset</option>
+                        <option value="CCTV">CCTV</option>
+                        <option value="Access Control">Access Control</option>
+                        <option value="Data Backup/Recovery">Data Backup/Recovery</option>
+                        <option value="Maintenance">Maintenance</option>
+                        <option value="Preventive Maintenance">Preventive Maintenance</option>
+                        <option value="Others">Others</option>
                     </select>
                 </div>
                 <div class="field"><label for="title">Request Title <span class="required">*</span></label><input type="text" name="title" id="title" placeholder="e.g. Printer not printing" maxlength="150" required></div>
