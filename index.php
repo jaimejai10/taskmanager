@@ -4,6 +4,11 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
 
+// Retrieve the one-time success message
+$taskSuccess = $_SESSION['task_success'] ?? null;
+unset($_SESSION['task_success']);
+
+// Generate a new CSRF token for the next submission
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
@@ -186,5 +191,83 @@ document.getElementById('requestForm').addEventListener('submit',function(e){if(
     });
 })();
 </script>
+
+
+<?php if (is_array($taskSuccess) && isset($taskSuccess['report_id'])): ?>
+<div id="successModal" class="success-modal">
+    <div class="success-modal-content">
+        <div class="success-icon">&#10003;</div>
+
+        <h2>Successfully Saved!</h2>
+
+        <p>
+            Your MIS service request has been submitted successfully.
+        </p>
+
+        <label for="reportNumber">Service Report No.</label>
+
+        <div class="report-number-box">
+            <input
+                type="text"
+                id="reportNumber"
+                value="<?= htmlspecialchars(
+                    $taskSuccess['report_id'],
+                    ENT_QUOTES,
+                    'UTF-8'
+                ) ?>"
+                readonly
+            >
+
+            <button type="button" id="copyReportNumber">
+                Copy
+            </button>
+        </div>
+
+        <p class="tracking-note">
+            Please save this number. You will need it to track your request.
+        </p>
+
+        <div id="copyMessage" role="status"></div>
+
+        <button
+            type="button"
+            class="success-close-button"
+            id="closeSuccessModal"
+        >
+            Done
+        </button>
+    </div>
+</div>
+
+<script>
+(function () {
+    const modal = document.getElementById('successModal');
+    const reportNumber = document.getElementById('reportNumber');
+    const copyButton = document.getElementById('copyReportNumber');
+    const copyMessage = document.getElementById('copyMessage');
+    const closeButton = document.getElementById('closeSuccessModal');
+
+    copyButton.addEventListener('click', async function () {
+        try {
+            await navigator.clipboard.writeText(reportNumber.value);
+            copyMessage.textContent = 'Report number copied!';
+        } catch (error) {
+            reportNumber.focus();
+            reportNumber.select();
+
+            const copied = document.execCommand('copy');
+            copyMessage.textContent = copied
+                ? 'Report number copied!'
+                : 'Please copy the selected report number manually.';
+        }
+    });
+
+    closeButton.addEventListener('click', function () {
+        modal.remove();
+    });
+})();
+</script>
+<?php endif; ?>
+
 
 </body></html>

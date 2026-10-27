@@ -1,28 +1,41 @@
 <?php
 declare(strict_types=1);
 
+// ========================================
+// 1. SESSION AND DATABASE CONNECTION
+// ========================================
+
 if (session_status() !== PHP_SESSION_ACTIVE) {
     session_start();
 }
 
 require_once __DIR__ . "/../DB_connection.php";
 
-// Redirect to the main request form
+// ========================================
+// 2. REDIRECT HELPER
+// ========================================
+
 function fail_request(string $message): void
 {
     header("Location: ../index.php?error=" . urlencode($message));
     exit;
 }
 
-// Only accept POST requests
+// ========================================
+// 3. ACCEPT POST REQUESTS ONLY
+// ========================================
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header("Location: ../index.php");
     exit;
 }
 
-// Verify CSRF token
+// ========================================
+// 4. CSRF SECURITY VALIDATION
+// ========================================
+
 $submittedToken = $_POST['csrf_token'] ?? '';
-$sessionToken = $_SESSION['csrf_token'] ?? '';
+$sessionToken   = $_SESSION['csrf_token'] ?? '';
 
 if (
     !is_string($submittedToken) ||
@@ -30,24 +43,34 @@ if (
     $sessionToken === '' ||
     !hash_equals($sessionToken, $submittedToken)
 ) {
-    fail_request("Your session expired. Please refresh the form and try again.");
+    fail_request(
+        "Your session expired. Please refresh the form and try again."
+    );
 }
 
-// Read submitted form fields
+// ========================================
+// 5. RECEIVE FORM DATA
+// ========================================
+
 $category       = trim($_POST['category'] ?? '');
 $title          = trim($_POST['title'] ?? '');
 $description    = trim($_POST['description'] ?? '');
 $priority       = trim($_POST['priority'] ?? '');
-$company_id     = filter_var(
-    $_POST['company_id'] ?? null,
-    FILTER_VALIDATE_INT
-);
 $requested_by   = trim($_POST['requested_by'] ?? '');
 $requester_no   = trim($_POST['requester_no'] ?? '');
 $assigned_input = trim($_POST['assigned_to_id'] ?? '');
 $due_date_input = trim($_POST['due_date'] ?? '');
 
-// Allowed categories: keep synchronized with index.php
+$company_id = filter_var(
+    $_POST['company_id'] ?? null,
+    FILTER_VALIDATE_INT
+);
+
+// ========================================
+// 6. VALIDATE CATEGORY
+// Keep this list synchronized with index.php
+// ========================================
+
 $allowedCategories = [
     'Network',
     'Internet',
@@ -68,19 +91,29 @@ $allowedCategories = [
     'Others'
 ];
 
-// Validate category
 if (!in_array($category, $allowedCategories, true)) {
     fail_request("Please select a valid category.");
 }
 
-// Validate priority
-$allowedPriorities = ['Low', 'Medium', 'High', 'Urgent'];
+// ========================================
+// 7. VALIDATE PRIORITY
+// ========================================
+
+$allowedPriorities = [
+    'Low',
+    'Medium',
+    'High',
+    'Urgent'
+];
 
 if (!in_array($priority, $allowedPriorities, true)) {
     fail_request("Please select a valid priority.");
 }
 
-// Validate required fields
+// ========================================
+// 8. VALIDATE REQUIRED FIELDS
+// ========================================
+
 if (
     $title === '' ||
     mb_strlen($title) > 255 ||
@@ -96,41 +129,75 @@ if (
     fail_request("Please check all required fields.");
 }
 
-// Validate Philippine mobile number
+// ========================================
+// 9. VALIDATE PHILIPPINE MOBILE NUMBER
+// ========================================
+
 if (!preg_match('/^(09\d{9}|\+639\d{9})$/', $requester_no)) {
     fail_request("Please enter a valid Philippine mobile number.");
 }
 
-// Validate optional due date
+// ========================================
+// 10. VALIDATE OPTIONAL DUE DATE
+// ========================================
+
 $due_date = null;
 
 if ($due_date_input !== '') {
-    $date = DateTime::createFromFormat('!Y-m-d', $due_date_input);
+    $date = DateTime::createFromFormat(
+        '!Y-m-d',
+        $due_date_input
+    );
 
-    if (!$date || $date->format('Y-m-d') !== $due_date_input) {
+    if (
+        !$date ||
+        $date->format('Y-m-d') !== $due_date_input
+    ) {
         fail_request("Please provide a valid due date.");
     }
 
     $due_date = $due_date_input;
 }
 
+// ========================================
+// 11. VALIDATE AND INSERT TASK
+// ========================================
+
 try {
-    // Confirm company exists
+
+    // ------------------------------------
+    // Verify company exists
+    // ------------------------------------
+
     $stmt = $conn->prepare(
-        "SELECT comp_id FROM companies WHERE comp_id = ?"
+        "SELECT comp_id
+         FROM companies
+         WHERE comp_id = ?
+         LIMIT 1"
     );
+
     $stmt->execute([$company_id]);
 
     if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
         fail_request("Please select a valid company.");
     }
 
-    // Assign a technician if none was selected
+    // ------------------------------------
+    // Resolve technician assignment
+    // ------------------------------------
+
     if ($assigned_input === '') {
-        // TEMPORARY: this selects from all users.
-        // Add your technician role/department condition when confirmed.
+
+        // TEMPORARY:
+        // Randomly select one user.
+        // Later, filter this query by technician role
+        // and exclude technicians on approved leave.
+
         $stmt = $conn->query(
-            "SELECT user_id FROM users ORDER BY RAND() LIMIT 1"
+            "SELECT user_id
+             FROM users
+             ORDER BY RAND()
+             LIMIT 1"
         );
 
         $technician = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -142,18 +209,26 @@ try {
         $assigned_to_id = (int) $technician['user_id'];
 
     } else {
+
         $assigned_to_id = filter_var(
             $assigned_input,
             FILTER_VALIDATE_INT
         );
 
-        if ($assigned_to_id === false || $assigned_to_id <= 0) {
+        if (
+            $assigned_to_id === false ||
+            $assigned_to_id <= 0
+        ) {
             fail_request("Please select a valid assignee.");
         }
 
         $stmt = $conn->prepare(
-            "SELECT user_id FROM users WHERE user_id = ?"
+            "SELECT user_id
+             FROM users
+             WHERE user_id = ?
+             LIMIT 1"
         );
+
         $stmt->execute([$assigned_to_id]);
 
         if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
@@ -161,11 +236,21 @@ try {
         }
     }
 
-    // Generate the report number on the server.
-    // Assumes report_id is numeric and has a UNIQUE index.
+    // ------------------------------------
+    // Begin database transaction
+    // ------------------------------------
+
     $conn->beginTransaction();
 
-    $stmt = $conn->query("SELECT MAX(report_id) FROM tasks");
+    // ------------------------------------
+    // Generate Service Report Number
+    // First number: 100000
+    // ------------------------------------
+
+    $stmt = $conn->query(
+        "SELECT MAX(report_id) FROM tasks"
+    );
+
     $lastReportId = $stmt->fetchColumn();
 
     $report_id = ($lastReportId === null)
@@ -173,14 +258,24 @@ try {
         : ((int) $lastReportId + 1);
 
     if ($report_id > 999999) {
-        throw new RuntimeException("Report number range exhausted.");
+        throw new RuntimeException(
+            "Service Report Number range exhausted."
+        );
     }
 
-    // Collect request metadata
+    // ------------------------------------
+    // Capture requester metadata
+    // ------------------------------------
+
     $ip_address = $_SERVER['REMOTE_ADDR'] ?? '';
+
     $device_info = $_SERVER['HTTP_USER_AGENT'] ?? '';
 
-    // Insert task, including priority
+    // ------------------------------------
+    // INSERT INTO TASKS TABLE
+    // 12 columns = 12 values
+    // ------------------------------------
+
     $sql = "INSERT INTO tasks (
                 report_id,
                 category,
@@ -194,7 +289,9 @@ try {
                 due_date,
                 requester_ipadd,
                 device_info
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )";
 
     $stmt = $conn->prepare($sql);
 
@@ -213,26 +310,50 @@ try {
         $device_info
     ]);
 
+    // Ensure the insert affected one row
+    if ($stmt->rowCount() !== 1) {
+        throw new RuntimeException(
+            "Task insertion did not create a row."
+        );
+    }
+
+    // ------------------------------------
+    // COMMIT DATABASE TRANSACTION
+    // ------------------------------------
+
     $conn->commit();
 
-    // Prevent reuse of the same CSRF token
-    unset($_SESSION['csrf_token']);
+    // ------------------------------------
+    // SUCCESS MESSAGE FOR INDEX.PHP
+    // Only set after successful commit
+    // ------------------------------------
 
-    header(
-        "Location: ../index.php?success=" .
-        urlencode("Request submitted successfully. Report No: " . $report_id)
-    );
+    $_SESSION['task_success'] = [
+        'report_id' => (string) $report_id
+    ];
+
+    // Generate a fresh CSRF token for the next request
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+
+    // Return to main request form
+    header("Location: ../index.php");
     exit;
 
 } catch (Throwable $e) {
+
+    // Roll back any uncommitted database changes
     if ($conn->inTransaction()) {
         $conn->rollBack();
     }
 
     // Log technical details privately
-    error_log("MIS task creation failed: " . $e->getMessage());
+    error_log(
+        "MIS task creation failed: " . $e->getMessage()
+    );
 
+    // Do not show success if the insert fails
     fail_request(
-        "Unable to submit your request. Please try again or contact MIS."
+        "Unable to save your request. Please check your details and try again."
     );
 }
+
