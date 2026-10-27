@@ -1,4 +1,13 @@
 <?php
+
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
+
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 include "DB_connection.php";
 include "app/Model/Company.php";
 include "app/Model/User.php";
@@ -49,10 +58,11 @@ $next_report_id = str_pad($next_id, 6, "0", STR_PAD_LEFT);
         <span class="badge">✓ System Generated</span>
     </div>
 
-    <form action="action/preview_task.php" method="POST" enctype="multipart/form-data" id="requestForm">
+        <form action="action/create_task.php"method="POST" enctype="multipart/form-data" id="requestForm">
 
         <!-- Hidden OUTPUT START -->
         <input type="hidden" name="report_id" value="<?php echo htmlspecialchars($next_report_id); ?>">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8') ?>">
         <!-- Hidden OUTPUT END -->
 
         <section class="section">

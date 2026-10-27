@@ -51,7 +51,7 @@ function update_profile($conn, $data){
 }
 
 function count_users($conn){
-	$sql = "SELECT user_id FROM users WHERE role='employee'";
+	$sql = "SELECT user_id FROM users WHERE position='MIS Head' AND position='MIS Associate'";
 	$stmt = $conn->prepare($sql);
 	$stmt->execute([]);
 
