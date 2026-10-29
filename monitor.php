@@ -60,7 +60,12 @@ function monitorFetch(PDO $conn, string $period): array
             COUNT(*) AS total,
             COALESCE(SUM(LOWER(TRIM(status)) = 'completed'), 0) AS completed,
             COALESCE(SUM(LOWER(TRIM(status)) = 'pending'), 0) AS pending,
-            COALESCE(SUM(LOWER(TRIM(status)) IN ('assigned','in progress','in_progress')), 0) AS in_progress
+            COALESCE(SUM(LOWER(TRIM(status)) IN ('assigned','in progress','in_progress')), 0) AS in_progress,
+            COALESCE(SUM(
+                due_date IS NOT NULL
+                AND due_date < NOW()
+                AND LOWER(TRIM(status)) NOT IN ('completed', 'complete', 'cancelled', 'canceled')
+            ), 0) AS overdue
         FROM tasks
         WHERE created_at >= :start
     ");
@@ -116,23 +121,29 @@ function monitorFetch(PDO $conn, string $period): array
                  THEN 0 ELSE 1 END,
             t.due_date ASC,
             t.task_id DESC
-        LIMIT 10
+        LIMIT 3
     ")->fetchAll();
 
-    // IT Team Status: uses the existing users.presence_status field.
-    $team = $conn->query("
-        SELECT user_id, full_name, role, presence_status, updated_at
-        FROM users
-        ORDER BY
-            CASE COALESCE(presence_status, 'Available')
-                WHEN 'Available' THEN 1
-                WHEN 'Busy' THEN 2
-                WHEN 'Away' THEN 3
-                ELSE 4
-            END,
-            full_name ASC
-        LIMIT 8
-    ")->fetchAll();
+    // IT Team Status: show only MIS staff and their position.
+        $team = $conn->query("
+            SELECT
+                user_id,
+                full_name,
+                position,
+                presence_status,
+                updated_at
+            FROM users
+            WHERE role IN ('MISHead', 'MISUser')
+            ORDER BY
+                CASE COALESCE(presence_status, 'Available')
+                    WHEN 'Available' THEN 1
+                    WHEN 'Busy' THEN 2
+                    WHEN 'Away' THEN 3
+                    ELSE 4
+                END,
+                full_name ASC
+            LIMIT 8
+        ")->fetchAll();
 
     // Leave panel: pending requests plus upcoming approved leave.
     $leave = [];
@@ -175,7 +186,8 @@ function monitorFetch(PDO $conn, string $period): array
             'total' => (int)($metrics['total'] ?? 0),
             'completed' => (int)($metrics['completed'] ?? 0),
             'pending' => (int)($metrics['pending'] ?? 0),
-            'in_progress' => (int)($metrics['in_progress'] ?? 0)
+            'in_progress' => (int)($metrics['in_progress'] ?? 0),
+            'overdue' => (int)($metrics['overdue'] ?? 0)
         ],
         'requests' => $requests,
         'attention' => $attention,
@@ -218,207 +230,11 @@ if (isset($_GET['ajax'])) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MIS Helpdesk - Live Monitoring</title>
+<link rel="stylesheet" href="css/monitor.css">
 <style>
-:root {
-    color-scheme: dark;
-    --bg: #03101e;
-    --panel: #061b2e;
-    --panel2: #09243a;
-    --border: #075985;
-    --text: #f4f8ff;
-    --muted: #a5c1d9;
-    --blue: #20b9ff;
-    --green: #00e5a0;
-    --yellow: #ffbd18;
-    --purple: #ad61ff;
-    --red: #ff483e;
-}
-* { box-sizing: border-box; }
-body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 14px Arial, Helvetica, sans-serif;
-}
-body.light {
-    color-scheme: light;
-    --bg: #edf3f9;
-    --panel: #fff;
-    --panel2: #f5f9ff;
-    --border: #cbd9e8;
-    --text: #15273c;
-    --muted: #61758c;
-}
-button, select { font: inherit; }
-.dashboard { padding: 18px; width: 100%; }
-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-    padding: 2px 4px 16px;
-    border-bottom: 1px solid var(--border);
-}
-.brand { display: flex; align-items: center; gap: 15px; }
-.brand-icon { font-size: 39px; color: var(--blue); }
-.brand h1 { font-size: clamp(23px, 2.1vw, 35px); margin: 0; }
-.brand h1 span { color: var(--blue); }
-.brand p { color: var(--muted); margin: 5px 0 0; }
-.header-right { display: flex; align-items: center; gap: 18px; }
-.clock { text-align: right; font-variant-numeric: tabular-nums; }
-.clock strong { display: block; font-size: 23px; margin-top: 4px; }
-.live { color: var(--green); font-weight: 800; font-size: 17px; }
-.live-dot {
-    display: inline-block; width: 10px; height: 10px;
-    background: var(--green); border-radius: 50%; margin-right: 6px;
-}
-.theme {
-    padding: 10px 12px; border-radius: 7px; cursor: pointer;
-    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
-}
-.summary {
-    border: 1px solid var(--border); border-radius: 12px;
-    padding: 13px; margin: 14px 0; background: var(--panel);
-}
-.summary-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
-.summary-head h2 { font-size: 17px; margin: 0 12px 0 0; }
-.period {
-    border: 1px solid var(--border); border-radius: 7px;
-    padding: 10px 13px; background: var(--panel2); color: var(--text);
-}
-.metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.metric-card {
-    display: flex; align-items: center; gap: 15px; padding: 14px;
-    min-height: 105px; border-radius: 11px; border: 1px solid var(--border);
-}
-.metric-card .icon { font-size: 33px; }
-.metric-card .number { font-size: 39px; font-weight: 800; }
-.metric-card .label { font-size: 14px; margin-top: 4px; }
-.blue { background: linear-gradient(110deg,#0064b9,#05234a); }
-.green { background: linear-gradient(110deg,#008f61,#03412f); }
-.orange { background: linear-gradient(110deg,#b77900,#4a3400); }
-.purple { background: linear-gradient(110deg,#6420d6,#220b6b); }
-body.light .metric-card { color: white; }
-.content-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1.85fr) minmax(320px, 1fr);
-    grid-template-areas:
-        "requests team"
-        "requests leave"
-        "requests attention";
-    gap: 13px;
-}
-.panel {
-    min-width: 0; border: 1px solid var(--border); border-radius: 12px;
-    background: var(--panel); overflow: hidden;
-}
-.panel-head {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 10px; padding: 14px 17px; border-bottom: 1px solid var(--border);
-}
-.panel-head h2 { font-size: 18px; margin: 0; }
-.panel-head p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
-.panel-icon { color: var(--blue); margin-right: 8px; }
-.count {
-    color: var(--blue); background: var(--panel2); padding: 6px 9px;
-    border-radius: 5px; font-weight: 800;
-}
-.requests-panel { grid-area: requests; }
-.team-panel { grid-area: team; }
-.leave-panel { grid-area: leave; }
-.attention-panel { grid-area: attention; }
-.table-wrap { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; min-width: 720px; }
-th {
-    background: var(--panel2); color: var(--muted); text-align: left;
-    font-size: 11px; font-weight: 600; padding: 12px 9px;
-    white-space: nowrap;
-}
-td { padding: 12px 9px; border-bottom: 1px solid var(--border); }
-tbody tr:nth-child(even) { background: var(--panel2); }
-.report { color: var(--blue); font-weight: 800; }
-.sub { color: var(--muted); font-size: 11px; margin-top: 4px; }
-.badge { display: inline-block; border-radius: 5px; padding: 5px 8px; font-weight: 800; font-size: 11px; }
-.badge.new { background: #13b7f5; color: #001c2c; }
-.badge.pending { background: #ffca28; color: #261800; }
-.badge.ongoing { background: #b46cff; color: #1a0030; }
-.badge.completed { background: #00d99b; color: #00291c; }
-.rows { padding: 0 14px; }
-.data-row {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border);
-}
-.data-row:last-child { border-bottom: 0; }
-.row-main { min-width: 0; }
-.row-main strong { display: block; overflow-wrap: anywhere; }
-.row-meta { color: var(--muted); font-size: 12px; margin-top: 4px; line-height: 1.4; }
-.presence { white-space: nowrap; font-weight: 700; }
-.presence::before {
-    content: ""; display: inline-block; width: 10px; height: 10px;
-    border-radius: 50%; margin-right: 7px; background: currentColor;
-}
-.available { color: var(--green); }
-.busy { color: var(--yellow); }
-.away { color: var(--red); }
-.attention-row { border-left: 3px solid var(--yellow); padding-left: 10px; }
-.network {
-    margin-top: 13px; padding: 13px 16px; border: 1px solid var(--border);
-    border-radius: 11px; background: var(--panel);
-}
-.network h2 { margin: 0 0 12px; color: var(--blue); font-size: 17px; }
-.network-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.net-item { border-right: 1px solid var(--border); padding: 4px 10px; }
-.net-item:last-child { border: 0; }
-.net-status { color: var(--muted); margin-top: 5px; }
-.net-status::before {
-    content: ""; display: inline-block; width: 9px; height: 9px;
-    border-radius: 50%; background: var(--green); margin-right: 7px;
-}
-footer { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 11px; padding: 12px 2px; }
-.sound {
-    position: fixed; right: 0; bottom: 0; z-index: 10; cursor: pointer;
-    color: var(--text); background: var(--panel2); border: 1px solid var(--border);
-    padding: 11px 14px; border-radius: 8px 0 0 0;
-}
-.popup {
-    display: none; position: fixed; z-index: 20; top: 20px; right: 20px;
-    width: min(410px, calc(100vw - 30px)); background: var(--panel);
-    border: 2px solid var(--blue); border-radius: 10px; padding: 18px;
-    box-shadow: 0 12px 40px #0008;
-}
-.popup.show { display: block; }
-.popup h2 { margin: 8px 0; }
-.popup p { color: var(--muted); }
-.popup-close { float: right; background: none; border: 0; color: var(--text); font-size: 24px; cursor: pointer; }
-.empty { text-align: center; padding: 25px 10px; color: var(--muted); }
-@media (min-width: 1400px) {
-    .requests-panel { min-height: 490px; }
-    .content-grid { grid-template-columns: minmax(0, 1.85fr) minmax(360px, 1fr); }
-}
-@media (max-width: 1050px) {
-    .content-grid {
-        grid-template-columns: 1fr;
-        grid-template-areas: "requests" "team" "leave" "attention";
-    }
-    .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    header { align-items: flex-start; }
-    .header-right { flex-wrap: wrap; justify-content: flex-end; }
-}
-@media (max-width: 650px) {
-    .dashboard { padding: 10px; }
-    header { flex-direction: column; }
-    .header-right { justify-content: flex-start; }
-    .brand { align-items: flex-start; }
-    .brand-icon { font-size: 25px; }
-    .metric-grid { gap: 7px; }
-    .metric-card { padding: 10px; min-height: 88px; gap: 9px; }
-    .metric-card .icon { font-size: 23px; }
-    .metric-card .number { font-size: 29px; }
-    .metric-card .label { font-size: 12px; }
-    .network-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .net-item { border: 0; }
-    footer { flex-direction: column; }
-}
+/* Overdue summary card accent; all other dashboard styling stays in css/monitor.css. */
+.metric-card.red { background: linear-gradient(110deg, #b91c1c, #450a0a); border-color: rgba(255, 92, 101, 0.45); color: #fff; }
+.metric-card.red .icon { color: #ffb4b8; }
 </style>
 </head>
 <body>
@@ -470,6 +286,10 @@ footer { display: flex; justify-content: space-between; gap: 12px; color: var(--
         <article class="metric-card purple">
             <div class="icon">⚙</div>
             <div><div id="progressTasks" class="number">0</div><div class="label">In Progress</div></div>
+        </article>
+        <article class="metric-card red">
+            <div class="icon">⚠</div>
+            <div><div id="overdueTasks" class="number">0</div><div class="label">Overdue</div></div>
         </article>
     </div>
 </section>
@@ -560,7 +380,8 @@ const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({
 let firstLoad = true;
 let knownTaskIds = new Set();
 let soundEnabled = false;
-let audioContext = null;
+const notificationAudio = new Audio("sounds/notification.mp3");
+notificationAudio.preload = "auto";
 let popupTimeout = null;
 let countdownInterval = null;
 
@@ -583,37 +404,33 @@ $("themeToggle").addEventListener("click", () => {
 async function toggleSound() {
     if (soundEnabled) {
         soundEnabled = false;
+        notificationAudio.pause();
+        notificationAudio.currentTime = 0;
     } else {
+        // Browser audio must be started by a user action. This button also tests the sound.
         try {
-            const AudioCtx = window.AudioContext || window.webkitAudioContext;
-            if (!AudioCtx) throw new Error("Audio not supported");
-            if (!audioContext) audioContext = new AudioCtx();
-            if (audioContext.state === "suspended") await audioContext.resume();
+            notificationAudio.currentTime = 0;
+            await notificationAudio.play();
             soundEnabled = true;
-            playSound();
         } catch (e) {
-            alert("Sound could not be enabled in this browser.");
             soundEnabled = false;
+            alert("Could not play the notification sound. Check that sounds/notification.mp3 exists and that your browser supports the file.");
         }
     }
     $("soundToggle").textContent = soundEnabled ? "🔊 Sound On" : "🔇 Enable Sound";
 }
 
 function playSound() {
-    if (!soundEnabled || !audioContext || audioContext.state !== "running") return;
-    [660, 880, 1046].forEach((frequency, i) => {
-        const osc = audioContext.createOscillator();
-        const gain = audioContext.createGain();
-        const start = audioContext.currentTime + i * 0.17;
-        osc.frequency.value = frequency;
-        gain.gain.setValueAtTime(0.0001, start);
-        gain.gain.exponentialRampToValueAtTime(0.12, start + 0.025);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.15);
-        osc.connect(gain);
-        gain.connect(audioContext.destination);
-        osc.start(start);
-        osc.stop(start + 0.16);
-    });
+    if (!soundEnabled) return;
+    try {
+        notificationAudio.pause();
+        notificationAudio.currentTime = 0;
+        notificationAudio.play().catch(error => {
+            console.error("Notification sound playback failed:", error);
+        });
+    } catch (error) {
+        console.error("Notification sound playback failed:", error);
+    }
 }
 $("soundToggle").addEventListener("click", toggleSound);
 
@@ -693,7 +510,7 @@ function renderTeam(items) {
         return `<div class="data-row">
             <div class="row-main">
                 <strong>${esc(u.full_name || "MIS User")}</strong>
-                <div class="row-meta">${esc(u.role || "")}</div>
+                <div class="row-meta">${esc(u.position || "")}</div>
             </div>
             <span class="presence ${cls}">${esc(u.presence_status || "Available")}</span>
         </div>`;
@@ -715,7 +532,6 @@ function renderLeave(items, error) {
             <div class="row-main">
                 <strong>${esc(l.full_name || "Unknown employee")} · ${esc(l.leave_type)}</strong>
                 <div class="row-meta">${esc(l.start_date)}${l.end_date && l.end_date !== l.start_date ? " – " + esc(l.end_date) : ""}</div>
-                <div class="row-meta">${esc(l.reason || "")}</div>
             </div>
             <span class="badge ${String(l.status).toLowerCase() === "approved" ? "completed" : "pending"}">${esc(l.status)}</span>
         </div>
@@ -756,6 +572,7 @@ async function refreshDashboard() {
         $("completedTasks").textContent = data.metrics.completed;
         $("pendingTasks").textContent = data.metrics.pending;
         $("progressTasks").textContent = data.metrics.in_progress;
+        $("overdueTasks").textContent = data.metrics.overdue ?? 0;
 
         renderRequests(data.requests || []);
         renderTeam(data.team || []);
