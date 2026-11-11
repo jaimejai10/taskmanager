@@ -85,8 +85,18 @@ function monitorFetch(PDO $conn, string $period): array
             c.comp_name AS company_name
         FROM tasks t
         LEFT JOIN companies c ON c.comp_id = t.company_id
-        ORDER BY t.created_at DESC, t.task_id DESC
-        LIMIT 10
+        ORDER BY
+            CASE
+                WHEN LOWER(TRIM(t.status)) = 'pending' THEN 1
+                WHEN LOWER(TRIM(t.status)) = 'in progress' THEN 2
+                WHEN LOWER(TRIM(t.status)) = 'overdue' THEN 3
+                WHEN LOWER(TRIM(t.status)) = 'on hold' THEN 4
+                WHEN LOWER(TRIM(t.status)) = 'completed' THEN 5
+                ELSE 6
+            END ASC,
+            t.created_at DESC,
+            t.task_id DESC
+        LIMIT 9;
     ")->fetchAll();
 
     // Open tasks that are overdue or unassigned.

@@ -1,15 +1,20 @@
 <?php 
 
 function get_all_users($conn){
-	$sql = "SELECT * FROM users WHERE role =? ";
-	$stmt = $conn->prepare($sql);
-	$stmt->execute(["employee"]);
+    $sql = "SELECT * FROM users 
+            WHERE role IN (?, ?) 
+            ORDER BY full_name ASC";
 
-	if($stmt->rowCount() > 0){
-		$users = $stmt->fetchAll();
-	}else $users = 0;
+    $stmt = $conn->prepare($sql);
+    $stmt->execute(["MISHead", "MISUser"]);
 
-	return $users;
+    if($stmt->rowCount() > 0){
+        $users = $stmt->fetchAll();
+    } else {
+        $users = 0;
+    }
+
+    return $users;
 }
 
 
