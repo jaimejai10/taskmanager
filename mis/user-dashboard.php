@@ -212,7 +212,7 @@ main{max-width:1600px;margin:auto;padding:25px 28px}.welcome{display:flex;justif
  <div class="brand"><div class="brand-icon"><i class="bi bi-headset"></i></div><div><h1>MIS HELPDESK</h1><small>IT SUPPORT OPERATIONS · MIS USER</small></div></div>
  <div class="account"><button class="bell" data-bs-toggle="modal" data-bs-target="#notifications" title="Notifications"><i class="bi bi-bell"></i></button><div class="avatar"><?=h(mb_substr($userName,0,1))?></div><span class="uname small fw-semibold"><?=h($userName)?></span><a class="btn btn-sm btn-outline-light" href="../logout.php"><i class="bi bi-box-arrow-right"></i></a></div>
 </header>
-<nav class="navline"><a class="active" href="user-dashboard.php"><i class="bi bi-grid me-1"></i>Dashboard</a><a href="#taskGrid" data-view="mine"><i class="bi bi-person-check me-1"></i>My Tasks</a><a href="#taskGrid" data-view="all"><i class="bi bi-list-task me-1"></i>All Tasks</a><a href="../leave-request.php"><i class="bi bi-calendar-plus me-1"></i>File A Leave</a></nav>
+<nav class="navline"><a class="active" href="user-dashboard.php"><i class="bi bi-grid me-1"></i>Dashboard</a><a href="#taskGrid" data-view="mine"><i class="bi bi-person-check me-1"></i>My Tasks</a><a href="#taskGrid" data-view="all"><i class="bi bi-list-task me-1"></i>All Tasks</a><a href="leave-request.php" data-bs-toggle="modal" data-bs-target="#leaveRequestModal"><i class="bi bi-calendar-plus me-1"></i>File A Leave</a></nav>
 <main>
  <div class="welcome"><div><h2>Welcome back, <?=h($userName)?>!</h2><p>Manage your assigned work and view the MIS team's task queue.</p></div><small class="text-secondary">Updated <?=date('M d, Y')?></small></div>
  <section class="cards">
@@ -252,6 +252,20 @@ main{max-width:1600px;margin:auto;padding:25px 28px}.welcome{display:flex;justif
 </div></div></div>
 <div class="modal fade" id="reassignModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Reassign Task</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><form id="reassignForm"><div class="modal-body"><input type="hidden" name="action" value="reassign_task"><input type="hidden" name="task_id" id="reassignId"><p id="reassignTitle" class="small text-secondary"></p><label class="form-label">Assign To</label><select class="form-select" name="assigned_user_id" required><option value="">Select MIS User</option><?php foreach($misUsers as $u):?><option value="<?=$u['user_id']?>" <?=$u['user_id']==$userId?'selected':''?>><?=h($u['full_name'])?><?=$u['user_id']==$userId?' (Me)':''?></option><?php endforeach;?></select></div><div class="modal-footer"><button class="btn btn-light" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" type="submit">Save Assignment</button></div></form></div></div></div>
 <div class="modal fade" id="notifications" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Notifications</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body text-secondary small">Notification feed can be connected to your existing notifications table in the next step.</div></div></div></div>
+<!-- Request for Leave Form popup: dashboard header/navigation remain visible -->
+<div class="modal fade" id="leaveRequestModal" tabindex="-1" aria-labelledby="leaveRequestModalLabel" aria-hidden="true">
+ <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" style="max-width:1180px;">
+  <div class="modal-content">
+   <div class="modal-header">
+    <h5 class="modal-title" id="leaveRequestModalLabel"><i class="bi bi-calendar-plus me-2"></i>Request for Leave Form</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+   </div>
+   <div class="modal-body p-0" style="height:82vh;min-height:560px;">
+    <iframe src="../leave-request-print-v2.php" title="Request for Leave Form" style="display:block;width:100%;height:100%;border:0;background:#f2f5f9;"></iframe>
+   </div>
+  </div>
+ </div>
+</div>
 <div class="toast-container position-fixed bottom-0 end-0 p-3"><div id="toast" class="toast text-bg-dark"><div class="toast-body" id="toastText"></div></div></div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>

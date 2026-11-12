@@ -49,32 +49,41 @@ try {
 
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    // Passwords must be stored using password_hash().
+    // Verify password
     if (!$user || !password_verify($password, $user['password'])) {
         loginFailed();
     }
 
+    // Identify user role
     $role = strtolower(trim($user['role'] ?? ''));
 
     if ($role === 'mishead') {
         $accessRole = 'admin';
+        $redirectPage = "../MIS/Admin-dashboard.php";
+
     } elseif ($role === 'misuser') {
         $accessRole = 'technician';
+        $redirectPage = "../MIS/user-dashboard.php";
+
     } else {
         loginFailed("This account does not have an authorized system role.");
     }
 
+    // Regenerate session ID after successful authentication
     session_regenerate_id(true);
 
+    // Store user session
     $_SESSION['user_id'] = $user['user_id'];
     $_SESSION['username'] = $user['username'];
     $_SESSION['full_name'] = $user['full_name'];
     $_SESSION['role'] = $role;
     $_SESSION['access_role'] = $accessRole;
 
+    // Clear login tokens and errors
     unset($_SESSION['login_csrf'], $_SESSION['login_error']);
 
-    header("Location: ../dashboard.php");
+    // Redirect based on designated role
+    header("Location: " . $redirectPage);
     exit;
 
 } catch (PDOException $e) {

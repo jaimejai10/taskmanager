@@ -1,9 +1,12 @@
 <?php
 session_start();
-require_once __DIR__ . '/DB_connection.php';
+require_once __DIR__ . "/../DB_connection.php";
 
 // MIS Head-only dashboard. Uses the existing PDO connection variable: $conn.
-if (empty($_SESSION['user_id'])) { header('Location: login.php'); exit; }
+if (empty($_SESSION['user_id'])) {
+    header('Location: ../login.php');
+    exit;
+}
 $accessRole = strtolower(trim((string)($_SESSION['access_role'] ?? '')));
 $sessionRole = strtolower(trim((string)($_SESSION['role'] ?? '')));
 if ($accessRole !== 'admin' && $sessionRole !== 'mis head') { http_response_code(403); exit('Access denied. MIS Head only.'); }
@@ -56,9 +59,12 @@ $recent = $conn->query('SELECT t.*,c.comp_name,u.full_name assignee_name FROM ta
 $associates = $conn->query("SELECT user_id,full_name FROM users WHERE LOWER(TRIM(role))='it associate' ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC);
 $userName = $_SESSION['full_name'] ?? $_SESSION['username'] ?? 'MIS Head'; $initials = strtoupper(substr($userName,0,1));
 ?>
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MIS Helpdesk | Admin Dashboard</title><link rel="stylesheet" href="css/admin-dashboard.css"></head><body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MIS Helpdesk | Admin Dashboard</title><link rel="stylesheet" href="../css/admin-dashboard.css"></head><body>
 <div class="app-shell"><aside class="sidebar" id="sidebar"><a class="brand" href="admin-dashboard.php"><span class="brand-icon">⚙</span><span><strong>MIS HELPDESK</strong><small>Admin Portal</small></span></a><nav class="side-nav">
-<a class="nav-link active" href="admin-dashboard.php"><span>▦</span>Dashboard</a><a class="nav-link" href="admin-requests.php"><span>▤</span>IT Requests</a><div class="nav-label">TASK MANAGEMENT</div><a class="nav-link sub-link" href="admin-requests.php?status=Pending">◉ &nbsp; Pending</a><a class="nav-link sub-link" href="admin-requests.php?status=In%20Progress">◉ &nbsp; In Progress</a><a class="nav-link sub-link" href="admin-requests.php?status=Completed">◉ &nbsp; Completed</a><a class="nav-link sub-link" href="admin-requests.php?status=Cancelled">◉ &nbsp; Cancelled</a><a class="nav-link" href="admin-reports.php"><span>▥</span>Reports</a><a class="nav-link" href="admin-associates.php"><span>♙</span>IT Associates</a><a class="nav-link" href="logout.php"><span>⇥</span>Logout</a></nav><div class="sidebar-foot">IT SERVICE MANAGEMENT<br><small>Admin workspace</small></div></aside>
+<a class="nav-link active" href="admin-dashboard.php"><span>▦</span>Dashboard</a><a class="nav-link" href="admin-requests.php"><span>▤</span>IT Requests</a><div class="nav-label">TASK MANAGEMENT</div><a class="nav-link sub-link" href="admin-requests.php?status=Pending">◉ &nbsp; Pending</a><a class="nav-link sub-link" href="admin-requests.php?status=In%20Progress">◉ &nbsp; In Progress</a><a class="nav-link sub-link" href="admin-requests.php?status=Completed">◉ &nbsp; Completed</a><a class="nav-link sub-link" href="admin-requests.php?status=Cancelled">◉ &nbsp; Cancelled</a><a class="nav-link" href="admin-reports.php"><span>▥</span>Reports</a><a class="nav-link" href="admin-associates.php"><span>♙</span>IT Associates</a><a class="nav-link" href="../logout.php">
+    <span>⇥</span>
+    Logout
+</a></nav><div class="sidebar-foot">IT SERVICE MANAGEMENT<br><small>Admin workspace</small></div></aside>
 <main class="main-area"><header class="topbar"><button class="menu-toggle" id="menuToggle">☰</button><div class="welcome"><h1>Welcome, <?=h($userName)?>!</h1><p>MIS HEAD <span>(Administrator)</span></p></div><div class="profile-area"><span class="avatar"><?=h($initials)?></span><span class="profile-name"><?=h($userName)?><small>MIS HEAD</small></span></div></header><section class="dashboard-content">
 <?php if($success):?><div class="alert success"><?=h($success)?></div><?php endif;?><?php if($error):?><div class="alert error"><?=h($error)?></div><?php endif;?>
 <section class="stat-grid"><a class="stat-card blue" href="admin-requests.php"><span class="stat-icon">▤</span><span><strong><?=$total?></strong><small>Total Requests</small></span><b>›</b></a><a class="stat-card amber" href="admin-requests.php?status=Pending"><span class="stat-icon">◷</span><span><strong><?=$pending?></strong><small>Pending Requests</small></span><b>›</b></a><a class="stat-card green" href="admin-requests.php?status=Completed"><span class="stat-icon">✓</span><span><strong><?=$completed?></strong><small>Completed Requests</small></span><b>›</b></a><a class="stat-card red" href="admin-requests.php?status=Cancelled"><span class="stat-icon">×</span><span><strong><?=$cancelled?></strong><small>Cancelled Requests</small></span><b>›</b></a></section>
