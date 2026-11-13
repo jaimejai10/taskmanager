@@ -96,7 +96,7 @@ function monitorFetch(PDO $conn, string $period): array
             END ASC,
             t.created_at DESC,
             t.task_id DESC
-        LIMIT 9;
+        LIMIT 10;
     ")->fetchAll();
 
     // Open tasks that are overdue or unassigned.
@@ -110,7 +110,7 @@ function monitorFetch(PDO $conn, string $period): array
             t.assigned_id,
             c.comp_name AS company_name,
             CASE
-                WHEN t.due_date IS NOT NULL
+                WHEN t.due_date IS NOT NULLe
                      AND t.due_date < NOW()
                      AND (t.assigned_id IS NULL OR t.assigned_id = 0)
                     THEN 'Overdue and unassigned'
@@ -152,7 +152,7 @@ function monitorFetch(PDO $conn, string $period): array
                     ELSE 4
                 END,
                 full_name ASC
-            LIMIT 8
+            LIMIT 3
         ")->fetchAll();
 
     // Leave panel: pending requests plus upcoming approved leave.
