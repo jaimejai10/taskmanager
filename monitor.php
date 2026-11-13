@@ -110,7 +110,7 @@ function monitorFetch(PDO $conn, string $period): array
             t.assigned_id,
             c.comp_name AS company_name,
             CASE
-                WHEN t.due_date IS NOT NULLe
+                WHEN t.due_date IS NOT NULL
                      AND t.due_date < NOW()
                      AND (t.assigned_id IS NULL OR t.assigned_id = 0)
                     THEN 'Overdue and unassigned'
