@@ -2,9 +2,27 @@
 <?php
 session_start();
 
+// Redirect already logged-in users to their designated dashboard.
 if (!empty($_SESSION['user_id'])) {
-    header("Location: mis/admin-dashboard.php");
-    exit;
+
+    $role = strtolower(trim($_SESSION['role'] ?? ''));
+
+    if ($role === 'mishead') {
+        header("Location: mis/admin-dashboard.php");
+        exit;
+
+    } elseif ($role === 'misuser') {
+        header("Location: mis/user-dashboard.php");
+        exit;
+
+    } else {
+        // Invalid or unauthorized session.
+        session_unset();
+        session_destroy();
+
+        header("Location: login.php");
+        exit;
+    }
 }
 
 if (empty($_SESSION['login_csrf'])) {
