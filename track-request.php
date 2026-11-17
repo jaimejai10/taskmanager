@@ -50,20 +50,48 @@ function h($value): string {
 
 $status = trim((string)($request['status'] ?? 'Pending'));
 
-$timelineSteps = [
+// Normalize older status values for display compatibility.
+$statusAliases = [
+    'Completed' => 'Complete',
+    'Ongoing' => 'In Progress',
+    'On Going' => 'In Progress'
+];
+
+$displayStatus = $statusAliases[$status] ?? $status;
+
+// The task workflow is:
+// Pending -> In Progress -> Complete / Incomplete / On Hold
+// Cancelled is a separate terminal outcome.
+$workflowStatuses = [
     'Pending',
-    'Assigned',
     'In Progress',
+    'Complete',
+    'Incomplete',
     'On Hold',
-    'Completed',
     'Cancelled'
 ];
 
-$activeIndex = array_search($status, $timelineSteps, true);
+$isKnownStatus = in_array($displayStatus, $workflowStatuses, true);
 
-// Unknown statuses are displayed without falsely marking a timeline step.
-if ($activeIndex === false) {
-    $activeIndex = -1;
+// The database currently stores only the latest status, not status history.
+// This timeline therefore displays the current workflow position, not an audit log.
+$timelineSteps = [];
+$activeIndex = -1;
+
+if ($isKnownStatus) {
+    if ($displayStatus === 'Cancelled') {
+        $timelineSteps = ['Pending', 'Cancelled'];
+        $activeIndex = 1;
+    } elseif ($displayStatus === 'Pending') {
+        $timelineSteps = ['Pending', 'In Progress'];
+        $activeIndex = 0;
+    } elseif ($displayStatus === 'In Progress') {
+        $timelineSteps = ['Pending', 'In Progress'];
+        $activeIndex = 1;
+    } else {
+        $timelineSteps = ['Pending', 'In Progress', $displayStatus];
+        $activeIndex = 2;
+    }
 }
 
 $submitted = 'Not available';
@@ -183,7 +211,7 @@ if ($request) {
                     <strong><?= h($request['report_id']) ?></strong>
                 </div>
                 <span class="status-badge">
-                    ● <?= h($status) ?>
+                    ● <?= h($displayStatus) ?>
                 </span>
             </div>
 
@@ -251,26 +279,42 @@ if ($request) {
 
                 <h3 class="section-title">📊 Request Status Timeline</h3>
 
-                <div class="timeline">
-                    <?php foreach ($timelineSteps as $index => $step): ?>
-                        <?php
-                            $stepClass = '';
-                            $symbol = '·';
+                <?php if ($isKnownStatus): ?>
+                    <div class="timeline">
+                        <?php foreach ($timelineSteps as $index => $step): ?>
+                            <?php
+                                $stepClass = '';
+                                $symbol = '·';
 
-                            if ($activeIndex >= 0 && $index < $activeIndex) {
-                                $stepClass = 'complete';
-                                $symbol = '✓';
-                            } elseif ($index === $activeIndex) {
-                                $stepClass = 'active';
-                                $symbol = '●';
-                            }
-                        ?>
-                        <div class="timeline-step <?= h($stepClass) ?>">
-                            <div class="timeline-circle"><?= h($symbol) ?></div>
-                            <?= h($step) ?>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
+                                if ($index < $activeIndex) {
+                                    $stepClass = 'complete';
+                                    $symbol = '✓';
+                                } elseif ($index === $activeIndex) {
+                                    $stepClass = 'active';
+                                    $symbol = '●';
+                                }
+                            ?>
+                            <div class="timeline-step <?= h($stepClass) ?>">
+                                <div class="timeline-circle"><?= h($symbol) ?></div>
+                                <?= h($step) ?>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <?php if (in_array($displayStatus, ['Incomplete', 'On Hold'], true)): ?>
+                        <p class="hint">
+                            This request may return to In Progress when the technician resumes work.
+                        </p>
+                    <?php elseif ($displayStatus === 'Complete'): ?>
+                        <p class="hint">The technician has marked this request as complete.</p>
+                    <?php elseif ($displayStatus === 'Cancelled'): ?>
+                        <p class="hint">This request has been cancelled.</p>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <div class="track-message error" role="status">
+                        Current status: <?= h($status) ?>. The timeline will appear when this status is updated to a recognized workflow status.
+                    </div>
+                <?php endif; ?>
             </div>
         <?php endif; ?>
     </section>
