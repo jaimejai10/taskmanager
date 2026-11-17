@@ -20,12 +20,6 @@ include "app/Model/User.php";
 $companies = get_all_companies($conn);
 $users = get_all_users($conn);
 
-$sql = "SELECT MAX(report_id) AS last_id FROM tasks";
-$stmt = $conn->prepare($sql);
-$stmt->execute();
-$row = $stmt->fetch(PDO::FETCH_ASSOC);
-$next_id = $row['last_id'] ? $row['last_id'] + 1 : 1;
-$next_report_id = str_pad($next_id, 6, "0", STR_PAD_LEFT);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -58,17 +52,10 @@ $next_report_id = str_pad($next_id, 6, "0", STR_PAD_LEFT);
         <p>Fill out the details below and our MIS team will assist you.</p>
     </div>
 
-    <div class="request-number">
-        <div><small>Service Report No.</small><strong><?= htmlspecialchars((string)$next_report_id, ENT_QUOTES, 'UTF-8') ?></strong></div>
-        <span class="badge">✓ System Generated</span>
-    </div>
+        <form action="action/create_task.php" method="POST" enctype="multipart/form-data" id="requestForm">
 
-        <form action="action/create_task.php"method="POST" enctype="multipart/form-data" id="requestForm">
-
-        <!-- Hidden OUTPUT START -->
-        <input type="hidden" name="report_id" value="<?php echo htmlspecialchars($next_report_id); ?>">
+        <!-- CSRF protection -->
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'], ENT_QUOTES, 'UTF-8') ?>">
-        <!-- Hidden OUTPUT END -->
 
         <section class="section">
             <div class="section-title"><span class="section-icon">📄</span>1. Request Information</div>
@@ -143,7 +130,7 @@ $next_report_id = str_pad($next_id, 6, "0", STR_PAD_LEFT);
                     </select>
                 </div>
                 <div class="field"><label for="attachment">Attachment <span class="optional">(Optional)</span></label>
-                    <div class="upload-box"><div class="upload-icon">☁️</div><strong>Attach a photo or document</strong><p class="file-hint">JPG, PNG or PDF · Maximum 5 MB per file</p><input type="file" name="attachment" id="attachment" accept=".jpg,.jpeg,.png,.pdf"><div class="file-list" id="fileName"></div></div>
+                    <div class="upload-box"><div class="upload-icon">☁️</div><strong>Attach a photo or document</strong><p class="file-hint">JPG, PNG or PDF · Maximum 5 MB · One file only</p><input type="file" name="attachment" id="attachment" accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"><div class="file-list" id="fileName"></div></div>
                 </div>
             </div>
         </section>
@@ -157,7 +144,33 @@ const description=document.getElementById('description'),charCount=document.getE
 description.addEventListener('input',function(){charCount.textContent=this.value.length;});
 category.addEventListener('change',function(){descriptionHint.textContent=this.value==='Others'?'Please specify the type of request or issue in your description.':'Include any error messages or troubleshooting already attempted.';});
 requesterNo.addEventListener('input',function(){this.value=this.value.replace(/\D/g,'').slice(0,11);});
-attachment.addEventListener('change',function(){const file=this.files[0],fileName=document.getElementById('fileName');if(!file){fileName.textContent='';return;}const allowed=['image/jpeg','image/png','application/pdf'];if(!allowed.includes(file.type)){alert('Please select a JPG, PNG, or PDF file.');this.value='';fileName.textContent='';return;}if(file.size>5*1024*1024){alert('The maximum attachment size is 5 MB.');this.value='';fileName.textContent='';return;}fileName.textContent='✓ '+file.name;});
+attachment.addEventListener('change', function () {
+    const file = this.files[0];
+    const fileName = document.getElementById('fileName');
+
+    if (!file) {
+        fileName.textContent = '';
+        return;
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf'];
+
+    if (!allowedTypes.includes(file.type)) {
+        alert('Please select a JPG, PNG, or PDF file.');
+        this.value = '';
+        fileName.textContent = '';
+        return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+        alert('The maximum attachment size is 5 MB.');
+        this.value = '';
+        fileName.textContent = '';
+        return;
+    }
+
+    fileName.textContent = '✓ ' + file.name;
+});
 document.getElementById('requestForm').addEventListener('submit',function(e){if(!this.checkValidity()){e.preventDefault();this.reportValidity();return;}if(category.value==='Others'&&!description.value.trim()){e.preventDefault();alert('Please specify the issue in the description.');description.focus();}});
 </script>
 

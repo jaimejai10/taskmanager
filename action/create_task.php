@@ -11,6 +11,82 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 require_once __DIR__ . "/../DB_connection.php";
 
+
+// ========================================
+// TASK ATTACHMENT UPLOAD FUNCTION
+// Accepts JPG, PNG, and PDF files up to 5 MB.
+// Returns a relative path for the database, or null.
+// ========================================
+
+function upload_task_attachment(?array $file, int $reportId): ?string
+{
+    if ($file === null || !isset($file['error'])) {
+        return null;
+    }
+
+    // Attachment is optional.
+    if ($file['error'] === UPLOAD_ERR_NO_FILE) {
+        return null;
+    }
+
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        if ($file['error'] === UPLOAD_ERR_INI_SIZE || $file['error'] === UPLOAD_ERR_FORM_SIZE) {
+            throw new RuntimeException('The attachment exceeds the allowed upload size.');
+        }
+
+        throw new RuntimeException('The attachment could not be uploaded. Please try again.');
+    }
+
+    if (empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+        throw new RuntimeException('Invalid uploaded attachment.');
+    }
+
+    $maxFileSize = 5 * 1024 * 1024; // 5 MB
+    $actualFileSize = filesize($file['tmp_name']);
+
+    if ($actualFileSize === false || $actualFileSize > $maxFileSize) {
+        throw new RuntimeException('The attachment must not exceed 5 MB.');
+    }
+
+    // Detect the real file type instead of trusting the browser filename/MIME.
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mimeType = $finfo->file($file['tmp_name']);
+
+    $allowedMimeTypes = [
+        'image/jpeg'      => 'jpg',
+        'image/png'       => 'png',
+        'application/pdf' => 'pdf'
+    ];
+
+    if (!isset($allowedMimeTypes[$mimeType])) {
+        throw new RuntimeException('Only JPG, PNG, and PDF attachments are allowed.');
+    }
+
+    // create_task.php is inside /action, so dirname(__DIR__) is the project root.
+    $uploadDirectory = dirname(__DIR__) . '/uploads/task-attachments/';
+
+    if (!is_dir($uploadDirectory)) {
+        if (!mkdir($uploadDirectory, 0755, true) && !is_dir($uploadDirectory)) {
+            throw new RuntimeException('The attachment folder could not be created.');
+        }
+    }
+
+    if (!is_writable($uploadDirectory)) {
+        throw new RuntimeException('The attachment folder is not writable by the web server.');
+    }
+
+    $extension = $allowedMimeTypes[$mimeType];
+    $fileName = $reportId . '_' . bin2hex(random_bytes(12)) . '.' . $extension;
+    $destination = $uploadDirectory . $fileName;
+
+    if (!move_uploaded_file($file['tmp_name'], $destination)) {
+        throw new RuntimeException('The attachment could not be saved on the server.');
+    }
+
+    // Store only this relative path in the database.
+    return 'uploads/task-attachments/' . $fileName;
+}
+
 // ========================================
 // 2. REDIRECT HELPER
 // ========================================
@@ -163,6 +239,8 @@ if ($due_date_input !== '') {
 // 11. VALIDATE AND INSERT TASK
 // ========================================
 
+$savedAttachmentPath = null;
+
 try {
 
     // ------------------------------------
@@ -243,25 +321,56 @@ try {
     $conn->beginTransaction();
 
     // ------------------------------------
-    // Generate Service Report Number
+    // Generate a concurrency-safe Service Report Number
+    // The sequence row is locked until this transaction commits.
     // First number: 100000
     // ------------------------------------
 
     $stmt = $conn->query(
-        "SELECT MAX(report_id) FROM tasks"
+        "SELECT last_number
+         FROM task_report_sequence
+         WHERE sequence_id = 1
+         FOR UPDATE"
     );
 
     $lastReportId = $stmt->fetchColumn();
 
-    $report_id = ($lastReportId === null)
-        ? 100000
-        : ((int) $lastReportId + 1);
+    if ($lastReportId === false) {
+        throw new RuntimeException(
+            "Service report sequence is not initialized."
+        );
+    }
+
+    $report_id = (int) $lastReportId + 1;
 
     if ($report_id > 999999) {
         throw new RuntimeException(
             "Service Report Number range exhausted."
         );
     }
+
+    $stmt = $conn->prepare(
+        "UPDATE task_report_sequence
+         SET last_number = ?
+         WHERE sequence_id = 1"
+    );
+
+    $stmt->execute([$report_id]);
+
+    if ($stmt->rowCount() !== 1) {
+        throw new RuntimeException(
+            "Unable to update the service report sequence."
+        );
+    }
+
+    // ------------------------------------
+    // Save optional attachment
+    // ------------------------------------
+
+    $savedAttachmentPath = upload_task_attachment(
+        $_FILES['attachment'] ?? null,
+        $report_id
+    );
 
     // ------------------------------------
     // Capture requester metadata
@@ -273,7 +382,7 @@ try {
 
     // ------------------------------------
     // INSERT INTO TASKS TABLE
-    // 12 columns = 12 values
+    // 13 columns = 13 values
     // ------------------------------------
 
     $sql = "INSERT INTO tasks (
@@ -288,9 +397,10 @@ try {
                 assigned_id,
                 due_date,
                 requester_ipadd,
-                device_info
+                device_info,
+                attachment_path
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )";
 
     $stmt = $conn->prepare($sql);
@@ -307,7 +417,8 @@ try {
         $assigned_to_id,
         $due_date,
         $ip_address,
-        $device_info
+        $device_info,
+        $savedAttachmentPath
     ]);
 
     // Ensure the insert affected one row
@@ -344,6 +455,15 @@ try {
     // Roll back any uncommitted database changes
     if ($conn->inTransaction()) {
         $conn->rollBack();
+    }
+
+    // Remove the uploaded file if the database insert/commit failed.
+    if ($savedAttachmentPath !== null) {
+        $fullAttachmentPath = dirname(__DIR__) . '/' . $savedAttachmentPath;
+
+        if (is_file($fullAttachmentPath)) {
+            @unlink($fullAttachmentPath);
+        }
     }
 
     // Log technical details privately
