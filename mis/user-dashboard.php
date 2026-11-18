@@ -33,6 +33,15 @@ function pick(array $cols, array $names): ?string {
     foreach ($names as $name) if (in_array($name, $cols, true)) return $name;
     return null;
 }
+function attachmentUrl($storedPath): ?string {
+    $path = trim((string)($storedPath ?? ''));
+    if ($path === '' || str_contains($path, '\\') || str_starts_with($path, '/') || preg_match('/^[a-z][a-z0-9+.-]*:/i', $path)) return null;
+    $parts = explode('/', $path);
+    if (in_array('..', $parts, true) || in_array('.', $parts, true)) return null;
+    $parts = array_values(array_filter($parts, static fn($part) => $part !== ''));
+    if (!$parts) return null;
+    return '../' . implode('/', array_map('rawurlencode', $parts));
+}
 
 try {
     $tc = columns($conn, 'tasks');
@@ -74,7 +83,8 @@ try {
         'diagnosis' => pick($tc, ['diagnosis']),
         'action_taken' => pick($tc, ['action_taken']),
         'recommendation' => pick($tc, ['recommendation']),
-        'remarks' => pick($tc, ['remarks'])
+        'remarks' => pick($tc, ['remarks']),
+        'attachment' => pick($tc, ['attachment_path', 'attachment'])
     ];
     $hasCompany = $companyFk && $companyId && $companyName;
     $joinCompany = $hasCompany ? "LEFT JOIN companies c ON c.`$companyId` = t.`$companyFk`" : '';
@@ -91,30 +101,92 @@ try {
         $taskId = (int)($_POST['task_id'] ?? 0);
         if (!$taskId) reply(false, 'Invalid task.', 400);
 
-        $q = $conn->prepare("SELECT task_id, `$assignCol` AS assigned_user_id FROM tasks WHERE task_id = ?");
+        $q = $conn->prepare("SELECT task_id, status, `$assignCol` AS assigned_user_id FROM tasks WHERE task_id = ?");
         $q->execute([$taskId]);
         $task = $q->fetch();
         if (!$task) reply(false, 'Task not found.', 404);
 
+        if (($_POST['action'] ?? '') === 'accept_task') {
+            // Only an unassigned Pending task can be accepted. The conditional UPDATE
+            // prevents two technicians from accepting the same task simultaneously.
+            $accept = $conn->prepare("UPDATE tasks SET `$assignCol` = ?, status = 'In Progress'
+                WHERE task_id = ? AND ( `$assignCol` IS NULL OR `$assignCol` = 0 )
+                AND LOWER(TRIM(status)) = 'pending'");
+            $accept->execute([$userId, $taskId]);
+            if ($accept->rowCount() !== 1) {
+                reply(false, 'This task is no longer available. It may already have been accepted or its status changed. Refresh the dashboard.', 409);
+            }
+            reply(true, 'Task accepted. Status changed to In Progress.');
+        }
+
         if (($_POST['action'] ?? '') === 'update_task') {
             // Server-side authorization: must be assigned to the logged-in user.
             if ((int)$task['assigned_user_id'] !== $userId) {
-                reply(false, 'You can update only tasks assigned to you. Reassign this task to yourself first.', 403);
+                reply(false, 'You can update only tasks assigned to you.', 403);
             }
+            $current = strtolower(trim((string)$task['status']));
             $status = trim($_POST['status'] ?? '');
-            $allowed = ['Pending', 'Assigned', 'In Progress', 'On Hold', 'Completed', 'Cancelled'];
-            if (!in_array($status, $allowed, true)) reply(false, 'Select a valid status.', 422);
+            $transitions = [
+                'in progress' => ['Complete', 'Incomplete', 'On Hold'],
+                'incomplete'  => ['In Progress'],
+                'on hold'     => ['In Progress']
+            ];
+            if (!in_array($status, $transitions[$current] ?? [], true)) {
+                reply(false, "That status change is not allowed for the task current status.", 422);
+            }
 
-            $set = ['status = ?']; $params = [$status];
+            // Only save fields relevant to the selected status. This preserves
+            // previous notes when a task is resumed to In Progress.
+            $values = [];
             foreach (['diagnosis', 'action_taken', 'recommendation', 'remarks'] as $key) {
-                if ($fields[$key]) {
-                    $set[] = "`{$fields[$key]}` = ?";
-                    $params[] = trim($_POST[$key] ?? '');
+                $values[$key] = trim($_POST[$key] ?? '');
+            }
+
+            $fieldsToSave = [];
+            if ($status === 'Complete') {
+                $fieldsToSave = ['diagnosis', 'action_taken'];
+            } elseif ($status === 'Incomplete') {
+                $fieldsToSave = ['diagnosis', 'action_taken', 'recommendation'];
+            } elseif ($status === 'On Hold') {
+                // Reuse the existing recommendation column for the hold reason;
+                // this avoids requiring a separate remarks database column.
+                $fieldsToSave = ['diagnosis', 'recommendation'];
+            }
+
+            $requiredMessages = [
+                'diagnosis' => 'Please provide the Diagnosis.',
+                'action_taken' => 'Please provide the Action Taken.',
+                'recommendation' => ($status === 'On Hold')
+                    ? 'Please provide the reason why this task is On Hold.'
+                    : 'Please provide the reason why this task is Incomplete.',
+                'remarks' => 'Please provide the Remarks.'
+            ];
+
+            foreach ($fieldsToSave as $key) {
+                if (!$fields[$key]) {
+                    reply(false, "The database column for " . str_replace('_', ' ', $key) . " is missing. Please check your tasks table.", 500);
+                }
+                if ($values[$key] === '') {
+                    reply(false, $requiredMessages[$key], 422);
                 }
             }
+
+            $set = ['status = ?'];
+            $params = [$status];
+
+            foreach ($fieldsToSave as $key) {
+                $set[] = "`{$fields[$key]}` = ?";
+                $params[] = $values[$key];
+            }
+
             $params[] = $taskId;
-            $up = $conn->prepare("UPDATE tasks SET " . implode(', ', $set) . " WHERE task_id = ?");
+            $params[] = $userId;
+            $up = $conn->prepare(
+                "UPDATE tasks SET " . implode(', ', $set) .
+                " WHERE task_id = ? AND `$assignCol` = ?"
+            );
             $up->execute($params);
+
             reply(true, 'Task updated successfully.');
         }
 
@@ -150,15 +222,15 @@ try {
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="MIS_All_Tasks_' . date('Ymd_His') . '.csv"');
         $out = fopen('php://output', 'w'); fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['Report No.','Date Requested','Company','Title','Description','Requested By','Assigned To','Status','Due Date','Diagnosis','Action Taken','Recommendation','Remarks']);
+        fputcsv($out, ['Report No.','Date Requested','Company','Title','Description','Requested By','Assigned To','Status','Due Date','Diagnosis','Action Taken','Recommendation','Remarks','Attachment']);
         while ($r = $q->fetch()) {
-            fputcsv($out, [$r['report_id'],$r['created_at'],$r['company_name'],$r['title'],$r['description'],$r['requested_by'],$r['assigned_name'],$r['status'],$r['due_date'],$r['diagnosis'],$r['action_taken'],$r['recommendation'],$r['remarks']]);
+            fputcsv($out, [$r['report_id'],$r['created_at'],$r['company_name'],$r['title'],$r['description'],$r['requested_by'],$r['assigned_name'],$r['status'],$r['due_date'],$r['diagnosis'],$r['action_taken'],$r['recommendation'],$r['remarks'],$r['attachment']]);
         }
         fclose($out); exit;
     }
 
     // Task list: current user's tasks first, then unassigned, then other users' tasks.
-    $orderDue = $fields['due_date'] ? "CASE WHEN t.`{$fields['due_date']}` < NOW() AND LOWER(t.status) NOT IN ('completed','cancelled') THEN 0 ELSE 1 END, t.`{$fields['due_date']}` ASC," : '';
+    $orderDue = $fields['due_date'] ? "CASE WHEN t.`{$fields['due_date']}` < NOW() AND LOWER(t.status) NOT IN ('complete','completed','cancelled') THEN 0 ELSE 1 END, t.`{$fields['due_date']}` ASC," : '';
     $q = $conn->prepare($select . $from . "
         ORDER BY CASE WHEN t.`$assignCol` = ? THEN 0 WHEN t.`$assignCol` IS NULL OR t.`$assignCol` = 0 THEN 1 ELSE 2 END,
         $orderDue t.task_id DESC LIMIT 500");
@@ -181,10 +253,10 @@ foreach ($tasks as $t) {
     if ((int)$t['assigned_user_id'] !== $userId) continue;
     $counts['total']++;
     $s = strtolower(trim($t['status']));
-    if ($s === 'completed') $counts['completed']++;
-    if (in_array($s,['pending','assigned'],true)) $counts['pending']++;
+    if (in_array($s, ['complete', 'completed'], true)) $counts['completed']++;
+    if ($s === 'pending') $counts['pending']++;
     if (in_array($s,['in progress','in_progress'],true)) $counts['progress']++;
-    if ($t['due_date'] && strtotime($t['due_date']) < time() && !in_array($s,['completed','cancelled'],true)) $counts['overdue']++;
+    if ($t['due_date'] && strtotime($t['due_date']) < time() && !in_array($s,['complete','completed','cancelled'],true)) $counts['overdue']++;
 }
 ?>
 <!doctype html>
@@ -203,7 +275,7 @@ body{margin:0;background:var(--bg);font-family:Segoe UI,Arial,sans-serif;color:#
 .navline{background:#fff;padding:0 28px;border-bottom:1px solid var(--line);display:flex;gap:8px;overflow:auto}.navline a{padding:15px 13px;text-decoration:none;color:#64748b;font-size:13px;font-weight:700;white-space:nowrap;border-bottom:3px solid transparent}.navline a.active,.navline a:hover{color:#1d4f88;border-color:#3b82f6}
 main{max-width:1600px;margin:auto;padding:25px 28px}.welcome{display:flex;justify-content:space-between;align-items:end;margin-bottom:20px}.welcome h2{font-size:23px;font-weight:800;margin:0}.welcome p{color:var(--muted);font-size:13px;margin:5px 0 0}
 .cards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin-bottom:22px}.metric{border:0;background:#fff;border-radius:14px;padding:17px;display:flex;align-items:center;gap:13px;text-align:left;box-shadow:0 4px 16px #1d355710;transition:.2s}.metric:hover{transform:translateY(-3px)}.metric .ico{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:20px}.metric strong{display:block;font-size:25px;line-height:1.1}.metric span{font-size:12px;color:var(--muted);font-weight:700}.blue .ico{background:#e8f1ff;color:#2563eb}.green .ico{background:#e4f8ed;color:#159455}.orange .ico{background:#fff2df;color:#d97706}.purple .ico{background:#f1eaff;color:#7c3aed}.red .ico{background:#ffe8e8;color:#dc2626}
-.panel{background:#fff;border:1px solid var(--line);border-radius:15px;overflow:hidden;box-shadow:0 4px 16px #1d35570a}.panel-head{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}.panel-head h3{font-size:15px;font-weight:800;margin:0}.panel-head p{font-size:12px;color:var(--muted);margin:4px 0 0}.filters{padding:14px 20px;display:flex;gap:9px;flex-wrap:wrap}.filters .form-control,.filters .form-select{max-width:190px;font-size:12px}.table-responsive{overflow:auto}table{min-width:980px}thead th{background:#f7f9fc!important;color:#64748b!important;font-size:10px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}tbody td{font-size:12px;vertical-align:middle}.mine{background:#f4f8ff}.taskname{font-weight:750}.mine-tag{font-size:9px;color:#1d4ed8;background:#e3efff;border-radius:5px;padding:3px 5px;margin-left:4px}.pill{font-size:10px;font-weight:800;border-radius:20px;padding:5px 9px;background:#eef2f7;color:#475569}.pending{background:#fff3dc;color:#a16207}.in-progress,.assigned{background:#e8f1ff;color:#1d4ed8}.completed{background:#e5f8ed;color:#15803d}.on-hold{background:#f1eaff;color:#6d28d9}.cancelled{background:#ffe8e8;color:#b91c1c}.actions{display:flex;gap:5px;white-space:nowrap}.btn-sm{font-size:11px;font-weight:700;border-radius:8px}.modal-content{border:0;border-radius:16px;overflow:hidden}.modal-header{background:linear-gradient(110deg,var(--navy),var(--navy2));color:#fff}.modal-header .btn-close{filter:invert(1)}.modal-title{font-weight:800;font-size:16px}.form-label{font-size:12px;font-weight:700;color:#475569}.form-control,.form-select{font-size:13px;border-radius:9px;padding:10px;border-color:#dce4ee}
+.panel{background:#fff;border:1px solid var(--line);border-radius:15px;overflow:hidden;box-shadow:0 4px 16px #1d35570a}.panel-head{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}.panel-head h3{font-size:15px;font-weight:800;margin:0}.panel-head p{font-size:12px;color:var(--muted);margin:4px 0 0}.filters{padding:14px 20px;display:flex;gap:9px;flex-wrap:wrap}.filters .form-control,.filters .form-select{max-width:190px;font-size:12px}.table-responsive{overflow:auto}table{min-width:980px}thead th{background:#f7f9fc!important;color:#64748b!important;font-size:10px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}tbody td{font-size:12px;vertical-align:middle}.mine{background:#f4f8ff}.taskname{font-weight:750}.mine-tag{font-size:9px;color:#1d4ed8;background:#e3efff;border-radius:5px;padding:3px 5px;margin-left:4px}.pill{font-size:10px;font-weight:800;border-radius:20px;padding:5px 9px;background:#eef2f7;color:#475569}.pending{background:#fff3dc;color:#a16207}.in-progress,.assigned{background:#e8f1ff;color:#1d4ed8}.completed,.complete{background:#e5f8ed;color:#15803d}.incomplete{background:#fff0e6;color:#c2410c}.on-hold{background:#f1eaff;color:#6d28d9}.cancelled{background:#ffe8e8;color:#b91c1c}.actions{display:flex;gap:5px;white-space:nowrap}.btn-sm{font-size:11px;font-weight:700;border-radius:8px}.modal-content{border:0;border-radius:16px;overflow:hidden}.modal-header{background:linear-gradient(110deg,var(--navy),var(--navy2));color:#fff}.modal-header .btn-close{filter:invert(1)}.modal-title{font-weight:800;font-size:16px}.form-label{font-size:12px;font-weight:700;color:#475569}.form-control,.form-select{font-size:13px;border-radius:9px;padding:10px;border-color:#dce4ee}
 @media(max-width:1100px){.cards{grid-template-columns:repeat(3,1fr)}}@media(max-width:700px){.topbar{padding:14px}.navline{padding:0 8px}main{padding:18px 12px}.cards{grid-template-columns:repeat(2,1fr);gap:8px}.metric{padding:12px}.metric strong{font-size:21px}.welcome{display:block}.account .uname{display:none}}
 </style>
 </head>
@@ -224,16 +296,23 @@ main{max-width:1600px;margin:auto;padding:25px 28px}.welcome{display:flex;justif
  </section>
  <section class="panel" id="taskGrid">
   <div class="panel-head"><div><h3><i class="bi bi-kanban me-2 text-primary"></i>All Tasks</h3><p>Your tasks are displayed first. Reassign a task to yourself before updating it.</p></div><span class="badge text-bg-light"><?=count($tasks)?> records</span></div>
-  <div class="filters"><input class="form-control" id="search" placeholder="Search report, title, company..."><select class="form-select" id="filterStatus"><option value="">All statuses</option><?php foreach(['Pending','Assigned','In Progress','On Hold','Completed','Cancelled'] as $s):?><option><?=h($s)?></option><?php endforeach;?></select><select class="form-select" id="filterCompany"><option value="">All companies</option><?php foreach($companies as $c):?><option><?=h($c['company_name'])?></option><?php endforeach;?></select><input class="form-control" type="date" id="dateFrom" title="Date from"><input class="form-control" type="date" id="dateTo" title="Date to"><button class="btn btn-outline-secondary btn-sm" id="reset">Reset</button><a class="btn btn-success btn-sm ms-auto" id="export" href="?export=excel"><i class="bi bi-file-earmark-excel"></i> Export Excel</a></div>
-  <div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Report No.</th><th>Date Requested</th><th>Task / Issue</th><th>Company</th><th>Assigned To</th><th>Due Date</th><th>Status</th><th>Actions</th></tr></thead><tbody id="rows">
-  <?php if(!$tasks):?><tr><td colspan="8" class="text-center text-secondary p-4">No tasks found.</td></tr><?php endif;?>
+  <div class="filters"><input class="form-control" id="search" placeholder="Search report, title, company..."><select class="form-select" id="filterStatus"><option value="">All statuses</option><?php foreach(['Pending','In Progress','Complete','Incomplete','On Hold','Cancelled'] as $s):?><option><?=h($s)?></option><?php endforeach;?></select><select class="form-select" id="filterCompany"><option value="">All companies</option><?php foreach($companies as $c):?><option><?=h($c['company_name'])?></option><?php endforeach;?></select><input class="form-control" type="date" id="dateFrom" title="Date from"><input class="form-control" type="date" id="dateTo" title="Date to"><button class="btn btn-outline-secondary btn-sm" id="reset">Reset</button><a class="btn btn-success btn-sm ms-auto" id="export" href="?export=excel"><i class="bi bi-file-earmark-excel"></i> Export Excel</a></div>
+  <div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Report No.</th><th>Date Requested</th><th>Task / Issue</th><th>Attachment</th><th>Company</th><th>Assigned To</th><th>Due Date</th><th>Status</th><th>Actions</th></tr></thead><tbody id="rows">
+  <?php if(!$tasks):?><tr><td colspan="9" class="text-center text-secondary p-4">No tasks found.</td></tr><?php endif;?>
   <?php foreach($tasks as $t): $mine=(int)$t['assigned_user_id']===$userId; $sk=strtolower(str_replace(' ','-',(string)$t['status']));?>
   <tr class="<?=$mine?'mine':''?>" data-mine="<?=$mine?1:0?>" data-status="<?=h(strtolower($t['status']))?>" data-company="<?=h($t['company_name'])?>" data-date="<?=h($t['created_at'])?>" data-search="<?=h(strtolower(($t['report_id']??'').' '.($t['title']??'').' '.($t['company_name']??'')))?>">
    <td class="fw-bold"><?=h($t['report_id'] ?: $t['task_id'])?></td><td><?=h($t['created_at'] ?: '—')?></td>
    <td><div class="taskname"><?=h($t['title'] ?: 'Untitled task')?><?=$mine?'<span class="mine-tag">MY TASK</span>':''?></div><small class="text-secondary"><?=h($t['description'] ?: '')?></small></td>
+   <td><?php $attachmentLink = attachmentUrl($t['attachment'] ?? ''); if ($attachmentLink): ?><a href="<?=h($attachmentLink)?>" target="_blank" rel="noopener noreferrer" class="text-primary text-decoration-underline"><i class="bi bi-paperclip me-1"></i><?=h(basename(str_replace('\\', '/', (string)$t['attachment'])))?></a><?php else: ?><span class="text-secondary">No attachment</span><?php endif; ?></td>
    <td><?=h($t['company_name'] ?: '—')?></td><td><?=h($t['assigned_name'] ?: 'Unassigned')?></td><td><?=h($t['due_date'] ?: '—')?></td>
    <td><span class="pill <?=h($sk)?>"><?=h($t['status'])?></span></td><td><div class="actions">
-    <button class="btn btn-primary btn-sm update-btn" <?=$mine?'':'disabled title="Reassign this task to yourself before updating."'?> data-task="<?=h(json_encode($t, JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_HEX_TAG))?>"><i class="bi bi-pencil-square"></i> Update</button>
+    <?php if (!$mine && empty($t['assigned_user_id']) && strtolower(trim($t['status'])) === 'pending'): ?>
+    <button class="btn btn-success btn-sm accept-btn" data-id="<?=$t['task_id']?>" data-title="<?=h($t['title'] ?: 'Task')?>"><i class="bi bi-check2-circle"></i> Accept Task</button>
+    <?php elseif ($mine && in_array(strtolower(trim($t['status'])), ['in progress','incomplete','on hold'], true)): ?>
+    <button class="btn btn-primary btn-sm update-btn" data-task="<?=h(json_encode($t, JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_HEX_TAG))?>"><i class="bi bi-pencil-square"></i> Update</button>
+    <?php else: ?>
+    <button class="btn btn-outline-secondary btn-sm" disabled title="This task is not available for acceptance or updating."><i class="bi bi-lock"></i> Unavailable</button>
+    <?php endif; ?>
     <button class="btn btn-outline-secondary btn-sm reassign-btn" data-id="<?=$t['task_id']?>" data-title="<?=h($t['title'] ?: 'Task')?>"><i class="bi bi-arrow-left-right"></i> Reassign</button>
    </div></td>
   </tr><?php endforeach;?>
@@ -241,15 +320,7 @@ main{max-width:1600px;margin:auto;padding:25px 28px}.welcome{display:flex;justif
  </section>
 </main>
 
-<div class="modal fade" id="updateModal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
- <div class="modal-header"><div><h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Update Task</h5><small id="modalReport" class="text-white-50"></small></div><button class="btn-close" data-bs-dismiss="modal"></button></div>
- <form id="updateForm"><div class="modal-body"><input type="hidden" name="action" value="update_task"><input type="hidden" name="task_id" id="taskId">
-  <div class="row mb-3"><div class="col-md-7"><small class="text-secondary">TASK TITLE</small><div class="fw-bold" id="modalTitle"></div></div><div class="col-md-5"><small class="text-secondary">COMPANY</small><div class="fw-semibold" id="modalCompany"></div></div></div>
-  <div class="mb-3"><label class="form-label">Update Status <span class="text-danger">*</span></label><select class="form-select" name="status" id="modalStatus" required><option>Pending</option><option>Assigned</option><option>In Progress</option><option>On Hold</option><option>Completed</option><option>Cancelled</option></select></div>
-  <div class="row g-3"><div class="col-md-6"><label class="form-label">Diagnosis <span class="text-secondary fw-normal">Optional</span></label><textarea class="form-control" name="diagnosis" id="modalDiagnosis" rows="3"></textarea></div><div class="col-md-6"><label class="form-label">Action Taken <span class="text-secondary fw-normal">Optional</span></label><textarea class="form-control" name="action_taken" id="modalAction" rows="3"></textarea></div><div class="col-md-6"><label class="form-label">Recommendation <span class="text-secondary fw-normal">Optional</span></label><textarea class="form-control" name="recommendation" id="modalRecommendation" rows="3"></textarea></div><div class="col-md-6"><label class="form-label">Remarks <span class="text-secondary fw-normal">Optional</span></label><textarea class="form-control" name="remarks" id="modalRemarks" rows="3"></textarea></div></div>
-  <div class="alert alert-light border small mt-3 mb-0"><i class="bi bi-info-circle text-primary me-1"></i> Only Update Status is required. All other fields are optional.</div>
- </div><div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" type="submit">Update Task</button></div></form>
-</div></div></div>
+<?php require __DIR__ . '/update-task-modal.php'; // Update Task modal separated for cleaner dashboard code ?>
 <div class="modal fade" id="reassignModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Reassign Task</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><form id="reassignForm"><div class="modal-body"><input type="hidden" name="action" value="reassign_task"><input type="hidden" name="task_id" id="reassignId"><p id="reassignTitle" class="small text-secondary"></p><label class="form-label">Assign To</label><select class="form-select" name="assigned_user_id" required><option value="">Select MIS User</option><?php foreach($misUsers as $u):?><option value="<?=$u['user_id']?>" <?=$u['user_id']==$userId?'selected':''?>><?=h($u['full_name'])?><?=$u['user_id']==$userId?' (Me)':''?></option><?php endforeach;?></select></div><div class="modal-footer"><button class="btn btn-light" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" type="submit">Save Assignment</button></div></form></div></div></div>
 <div class="modal fade" id="notifications" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Notifications</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body text-secondary small">Notification feed can be connected to your existing notifications table in the next step.</div></div></div></div>
 <!-- Request for Leave Form popup: dashboard header/navigation remain visible -->
@@ -272,9 +343,56 @@ main{max-width:1600px;margin:auto;padding:25px 28px}.welcome{display:flex;justif
 const updateModal=new bootstrap.Modal('#updateModal'),reassignModal=new bootstrap.Modal('#reassignModal'),toast=new bootstrap.Toast('#toast');
 function message(t){document.getElementById('toastText').textContent=t;toast.show();}
 document.querySelectorAll('.update-btn:not(:disabled)').forEach(b=>b.addEventListener('click',()=>{
- const t=JSON.parse(b.dataset.task);document.getElementById('taskId').value=t.task_id;document.getElementById('modalReport').textContent='Report No. '+(t.report_id||t.task_id);document.getElementById('modalTitle').textContent=t.title||'Untitled task';document.getElementById('modalCompany').textContent=t.company_name||'—';document.getElementById('modalStatus').value=t.status||'Pending';document.getElementById('modalDiagnosis').value=t.diagnosis||'';document.getElementById('modalAction').value=t.action_taken||'';document.getElementById('modalRecommendation').value=t.recommendation||'';document.getElementById('modalRemarks').value=t.remarks||'';updateModal.show();
+ const t=JSON.parse(b.dataset.task);document.getElementById('taskId').value=t.task_id;document.getElementById('modalReport').textContent='Report No. '+(t.report_id||t.task_id);document.getElementById('modalTitle').textContent=t.title||'Untitled task';document.getElementById('modalCompany').textContent=t.company_name||'—';const statusSelect=document.getElementById('modalStatus');statusSelect.innerHTML='';const choices=(String(t.status||'').toLowerCase()==='in progress')?['Complete','Incomplete','On Hold']:['In Progress'];choices.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;statusSelect.appendChild(o);});document.getElementById('modalDiagnosis').value=t.diagnosis||'';document.getElementById('modalAction').value=t.action_taken||'';document.getElementById('modalRecommendation').value=t.recommendation||'';syncUpdateFields();updateModal.show();
 }));
+function syncUpdateFields(){
+ const status=document.getElementById('modalStatus').value;
+ const isComplete=status==='Complete';
+ const isIncomplete=status==='Incomplete';
+ const isOnHold=status==='On Hold';
+ const needsDiagnosis=isComplete||isIncomplete||isOnHold;
+ const needsAction=isComplete||isIncomplete;
+ const needsReason=isIncomplete||isOnHold;
+
+ document.getElementById('diagnosisGroup').classList.toggle('d-none',!needsDiagnosis);
+ document.getElementById('actionGroup').classList.toggle('d-none',!needsAction);
+ document.getElementById('recommendationGroup').classList.toggle('d-none',!needsReason);
+
+ document.getElementById('modalDiagnosis').required=needsDiagnosis;
+ document.getElementById('modalAction').required=needsAction;
+ document.getElementById('modalRecommendation').required=needsReason;
+
+ document.getElementById('diagnosisRequired').classList.toggle('d-none',!needsDiagnosis);
+ document.getElementById('actionRequired').classList.toggle('d-none',!needsAction);
+
+ const reasonLabel=document.getElementById('recommendationLabel');
+ const reasonHelp=document.getElementById('recommendationHelp');
+ const reasonInput=document.getElementById('modalRecommendation');
+ if(isOnHold){
+  reasonLabel.textContent='Reason for On Hold';
+  reasonInput.placeholder='Explain why work is temporarily on hold...';
+  reasonHelp.textContent='This is saved in the Recommendation field.';
+ } else {
+  reasonLabel.textContent='Reason for Incomplete';
+  reasonInput.placeholder='Explain why this task cannot be completed yet and what is needed next...';
+  reasonHelp.textContent='This is saved in the Recommendation field.';
+ }
+
+ const help=document.getElementById('updateHelp');
+ const messages={
+  'In Progress':'The task will return to In Progress. No additional details are required. Existing notes will be preserved.',
+  'Complete':'Provide the diagnosis and describe the action taken.',
+  'Incomplete':'Provide the diagnosis, action taken, and the reason the task cannot be completed yet.',
+  'On Hold':'Provide the diagnosis and explain why the task is temporarily on hold.'
+ };
+ help.innerHTML='<i class="bi bi-info-circle text-primary me-1"></i>'+(
+  messages[status]||'Choose a status to see the information required for that update.'
+ );
+}
+document.getElementById('modalStatus').addEventListener('change',syncUpdateFields);
+const acceptedTask=new URLSearchParams(location.search).get('accepted_task');if(acceptedTask){const acceptedButton=[...document.querySelectorAll('.update-btn')].find(b=>{try{return String(JSON.parse(b.dataset.task).task_id)===String(acceptedTask);}catch(e){return false;}});if(acceptedButton)acceptedButton.click();}
 document.querySelectorAll('.reassign-btn').forEach(b=>b.addEventListener('click',()=>{document.getElementById('reassignId').value=b.dataset.id;document.getElementById('reassignTitle').textContent='Reassign: '+b.dataset.title;reassignModal.show();}));
+document.querySelectorAll('.accept-btn').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Accept this task and change its status to In Progress?'))return;const fd=new FormData();fd.append('action','accept_task');fd.append('task_id',b.dataset.id);try{const r=await fetch(location.pathname,{method:'POST',body:fd});const j=await r.json();if(!r.ok||!j.ok)throw Error(j.message||'Unable to accept task.');message(j.message);setTimeout(()=>{location.href=location.pathname+'?accepted_task='+encodeURIComponent(b.dataset.id);},400);}catch(x){alert(x.message);}}));
 async function send(form){const r=await fetch(location.pathname,{method:'POST',body:new FormData(form)});const j=await r.json();if(!r.ok||!j.ok)throw Error(j.message||'Unable to save.');return j;}
 document.getElementById('updateForm').addEventListener('submit',async e=>{e.preventDefault();try{const r=await send(e.currentTarget);message(r.message);setTimeout(()=>location.reload(),600);}catch(x){alert(x.message);}});
 document.getElementById('reassignForm').addEventListener('submit',async e=>{e.preventDefault();try{const r=await send(e.currentTarget);message(r.message);setTimeout(()=>location.reload(),600);}catch(x){alert(x.message);}});
@@ -286,7 +404,7 @@ function filterRows(){
 document.getElementById('reset').addEventListener('click',()=>{['search','filterStatus','filterCompany','dateFrom','dateTo'].forEach(id=>document.getElementById(id).value='');filterRows();});
 function exportUrl(){const p=new URLSearchParams({export:'excel'});[['company','filterCompany'],['status','filterStatus'],['from','dateFrom'],['to','dateTo']].forEach(([k,id])=>{const v=document.getElementById(id).value;if(v)p.set(k,v);});document.getElementById('export').href='?'+p.toString();}
 ['filterCompany','filterStatus','dateFrom','dateTo'].forEach(id=>document.getElementById(id).addEventListener('change',exportUrl));
-document.querySelectorAll('[data-card]').forEach(b=>b.addEventListener('click',()=>{const k=b.dataset.card;document.querySelectorAll('#rows tr[data-search]').forEach(r=>{const own=r.dataset.mine==='1',s=r.dataset.status;r.hidden=k==='all'?!own:k==='completed'?!(own&&s==='completed'):k==='pending'?!(own&&['pending','assigned'].includes(s)):k==='progress'?!(own&&s==='in progress'):!(own&&r.querySelector('.text-danger'));});document.getElementById('taskGrid').scrollIntoView({behavior:'smooth'});}));
+document.querySelectorAll('[data-card]').forEach(b=>b.addEventListener('click',()=>{const k=b.dataset.card;document.querySelectorAll('#rows tr[data-search]').forEach(r=>{const own=r.dataset.mine==='1',s=r.dataset.status;r.hidden=k==='all'?!own:k==='completed'?!(own&&['complete','completed'].includes(s)):k==='pending'?!(own&&s==='pending'):k==='progress'?!(own&&s==='in progress'):!(own&&r.querySelector('.text-danger'));});document.getElementById('taskGrid').scrollIntoView({behavior:'smooth'});}));
 document.querySelectorAll('[data-view]').forEach(a=>a.addEventListener('click',()=>{document.querySelectorAll('#rows tr[data-search]').forEach(r=>r.hidden=a.dataset.view==='mine'&&r.dataset.mine!=='1');}));
 </script>
 </body></html>
