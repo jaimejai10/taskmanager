@@ -19,21 +19,28 @@ $conn->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 $userId = (int)$_SESSION['user_id'];
 $userName = $_SESSION['full_name'] ?? $_SESSION['name'] ?? 'MIS User';
 
-function h($v) { return htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8'); }
-function reply($ok, $message, $code = 200) {
+function h($v)
+{
+    return htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8');
+}
+function reply($ok, $message, $code = 200)
+{
     http_response_code($code);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['ok' => $ok, 'message' => $message]);
     exit;
 }
-function columns(PDO $db, string $table): array {
+function columns(PDO $db, string $table): array
+{
     return array_column($db->query("SHOW COLUMNS FROM `$table`")->fetchAll(), 'Field');
 }
-function pick(array $cols, array $names): ?string {
+function pick(array $cols, array $names): ?string
+{
     foreach ($names as $name) if (in_array($name, $cols, true)) return $name;
     return null;
 }
-function attachmentUrl($storedPath): ?string {
+function attachmentUrl($storedPath): ?string
+{
     $path = trim((string)($storedPath ?? ''));
     if ($path === '' || str_contains($path, '\\') || str_starts_with($path, '/') || preg_match('/^[a-z][a-z0-9+.-]*:/i', $path)) return null;
     $parts = explode('/', $path);
@@ -69,7 +76,8 @@ try {
         $role = strtolower((string)$roleCheck->fetchColumn());
         if (!$role) throw new RuntimeException('Logged-in user was not found in users table.');
         if (!in_array($role, ['misuser', 'mishead', 'admin', 'administrator'], true)) {
-            http_response_code(403); exit('Access denied.');
+            http_response_code(403);
+            exit('Access denied.');
         }
     }
 
@@ -183,7 +191,7 @@ try {
             $params[] = $userId;
             $up = $conn->prepare(
                 "UPDATE tasks SET " . implode(', ', $set) .
-                " WHERE task_id = ? AND `$assignCol` = ?"
+                    " WHERE task_id = ? AND `$assignCol` = ?"
             );
             $up->execute($params);
 
@@ -195,7 +203,8 @@ try {
             if (!$target) reply(false, 'Choose an MIS user.', 422);
             $sql = "SELECT `$uidCol` FROM users WHERE `$uidCol` = ?";
             if ($roleCol) $sql .= " AND LOWER(`$roleCol`) IN ('misuser','mishead')";
-            $check = $conn->prepare($sql); $check->execute([$target]);
+            $check = $conn->prepare($sql);
+            $check->execute([$target]);
             if (!$check->fetchColumn()) reply(false, 'Selected account is not an MIS user.', 422);
             $up = $conn->prepare("UPDATE tasks SET `$assignCol` = ? WHERE task_id = ?");
             $up->execute([$target, $taskId]);
@@ -206,27 +215,36 @@ try {
 
     // CSV export: Excel opens CSV files natively.
     if (($_GET['export'] ?? '') === 'excel') {
-        $where = []; $params = [];
+        $where = [];
+        $params = [];
         if ($hasCompany && !empty($_GET['company'])) {
-            $where[] = "c.`$companyName` = ?"; $params[] = $_GET['company'];
+            $where[] = "c.`$companyName` = ?";
+            $params[] = $_GET['company'];
         }
         if ($fields['created_at'] && !empty($_GET['from'])) {
-            $where[] = "DATE(t.`{$fields['created_at']}`) >= ?"; $params[] = $_GET['from'];
+            $where[] = "DATE(t.`{$fields['created_at']}`) >= ?";
+            $params[] = $_GET['from'];
         }
         if ($fields['created_at'] && !empty($_GET['to'])) {
-            $where[] = "DATE(t.`{$fields['created_at']}`) <= ?"; $params[] = $_GET['to'];
+            $where[] = "DATE(t.`{$fields['created_at']}`) <= ?";
+            $params[] = $_GET['to'];
         }
-        if (!empty($_GET['status'])) { $where[] = "t.status = ?"; $params[] = $_GET['status']; }
-        $q = $conn->prepare($select . $from . ($where ? ' WHERE '.implode(' AND ', $where) : '') . ' ORDER BY t.task_id DESC');
+        if (!empty($_GET['status'])) {
+            $where[] = "t.status = ?";
+            $params[] = $_GET['status'];
+        }
+        $q = $conn->prepare($select . $from . ($where ? ' WHERE ' . implode(' AND ', $where) : '') . ' ORDER BY t.task_id DESC');
         $q->execute($params);
         header('Content-Type: text/csv; charset=utf-8');
         header('Content-Disposition: attachment; filename="MIS_All_Tasks_' . date('Ymd_His') . '.csv"');
-        $out = fopen('php://output', 'w'); fwrite($out, "\xEF\xBB\xBF");
-        fputcsv($out, ['Report No.','Date Requested','Company','Title','Description','Requested By','Assigned To','Status','Due Date','Diagnosis','Action Taken','Recommendation','Remarks','Attachment']);
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['Report No.', 'Date Requested', 'Company', 'Title', 'Description', 'Requested By', 'Assigned To', 'Status', 'Due Date', 'Diagnosis', 'Action Taken', 'Recommendation', 'Remarks', 'Attachment']);
         while ($r = $q->fetch()) {
-            fputcsv($out, [$r['report_id'],$r['created_at'],$r['company_name'],$r['title'],$r['description'],$r['requested_by'],$r['assigned_name'],$r['status'],$r['due_date'],$r['diagnosis'],$r['action_taken'],$r['recommendation'],$r['remarks'],$r['attachment']]);
+            fputcsv($out, [$r['report_id'], $r['created_at'], $r['company_name'], $r['title'], $r['description'], $r['requested_by'], $r['assigned_name'], $r['status'], $r['due_date'], $r['diagnosis'], $r['action_taken'], $r['recommendation'], $r['remarks'], $r['attachment']]);
         }
-        fclose($out); exit;
+        fclose($out);
+        exit;
     }
 
     // Task list: current user's tasks first, then unassigned, then other users' tasks.
@@ -234,177 +252,821 @@ try {
     $q = $conn->prepare($select . $from . "
         ORDER BY CASE WHEN t.`$assignCol` = ? THEN 0 WHEN t.`$assignCol` IS NULL OR t.`$assignCol` = 0 THEN 1 ELSE 2 END,
         $orderDue t.task_id DESC LIMIT 500");
-    $q->execute([$userId]); $tasks = $q->fetchAll();
+    $q->execute([$userId]);
+    $tasks = $q->fetchAll();
 
     $userSql = "SELECT `$uidCol` AS user_id, `$unameCol` AS full_name FROM users";
     if ($roleCol) $userSql .= " WHERE LOWER(`$roleCol`) IN ('misuser','mishead')";
     $userSql .= " ORDER BY `$unameCol`";
     $misUsers = $conn->query($userSql)->fetchAll();
     $companies = ($hasCompany) ? $conn->query("SELECT DISTINCT `$companyName` AS company_name FROM companies ORDER BY `$companyName`")->fetchAll() : [];
-
 } catch (Throwable $e) {
-    error_log('MIS user dashboard: '.$e->getMessage());
+    error_log('MIS user dashboard: ' . $e->getMessage());
     http_response_code(500);
-    exit('Dashboard setup error: '.h($e->getMessage()).'<br>Check table/column names in your database.');
+    exit('Dashboard setup error: ' . h($e->getMessage()) . '<br>Check table/column names in your database.');
 }
 
-$counts = ['total'=>0,'completed'=>0,'pending'=>0,'progress'=>0,'overdue'=>0];
+$counts = ['total' => 0, 'completed' => 0, 'pending' => 0, 'progress' => 0, 'overdue' => 0];
 foreach ($tasks as $t) {
     if ((int)$t['assigned_user_id'] !== $userId) continue;
     $counts['total']++;
     $s = strtolower(trim($t['status']));
     if (in_array($s, ['complete', 'completed'], true)) $counts['completed']++;
     if ($s === 'pending') $counts['pending']++;
-    if (in_array($s,['in progress','in_progress'],true)) $counts['progress']++;
-    if ($t['due_date'] && strtotime($t['due_date']) < time() && !in_array($s,['complete','completed','cancelled'],true)) $counts['overdue']++;
+    if (in_array($s, ['in progress', 'in_progress'], true)) $counts['progress']++;
+    if ($t['due_date'] && strtotime($t['due_date']) < time() && !in_array($s, ['complete', 'completed', 'cancelled'], true)) $counts['overdue']++;
 }
+$layoutRole = 'user';
+$currentPage = 'dashboard';
+$roleLabel = 'MIS USER';
+$portalLabel = 'User Portal';
 ?>
 <!doctype html>
 <html lang="en">
+
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MIS User Dashboard</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-<style>
-:root{--navy:#102b52;--navy2:#1b477d;--bg:#f3f6fa;--line:#e6edf5;--muted:#718096}
-body{margin:0;background:var(--bg);font-family:Segoe UI,Arial,sans-serif;color:#1e293b}
-.topbar{background:linear-gradient(110deg,var(--navy),var(--navy2));color:#fff;padding:17px 28px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 5px 18px #102b5220}
-.brand{display:flex;gap:12px;align-items:center}.brand-icon{width:43px;height:43px;border-radius:12px;background:#ffffff20;display:grid;place-items:center;font-size:22px}.brand h1{font-size:18px;font-weight:800;letter-spacing:1px;margin:0}.brand small{font-size:10px;letter-spacing:2px;color:#cbd8e8}
-.account{display:flex;align-items:center;gap:12px}.bell{width:40px;height:40px;border:1px solid #ffffff50;background:#ffffff15;color:white;border-radius:10px}.avatar{width:34px;height:34px;border-radius:50%;background:#dbeafe;color:#173d70;display:grid;place-items:center;font-weight:bold}
-.navline{background:#fff;padding:0 28px;border-bottom:1px solid var(--line);display:flex;gap:8px;overflow:auto}.navline a{padding:15px 13px;text-decoration:none;color:#64748b;font-size:13px;font-weight:700;white-space:nowrap;border-bottom:3px solid transparent}.navline a.active,.navline a:hover{color:#1d4f88;border-color:#3b82f6}
-main{max-width:1600px;margin:auto;padding:25px 28px}.welcome{display:flex;justify-content:space-between;align-items:end;margin-bottom:20px}.welcome h2{font-size:23px;font-weight:800;margin:0}.welcome p{color:var(--muted);font-size:13px;margin:5px 0 0}
-.cards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;margin-bottom:22px}.metric{border:0;background:#fff;border-radius:14px;padding:17px;display:flex;align-items:center;gap:13px;text-align:left;box-shadow:0 4px 16px #1d355710;transition:.2s}.metric:hover{transform:translateY(-3px)}.metric .ico{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:20px}.metric strong{display:block;font-size:25px;line-height:1.1}.metric span{font-size:12px;color:var(--muted);font-weight:700}.blue .ico{background:#e8f1ff;color:#2563eb}.green .ico{background:#e4f8ed;color:#159455}.orange .ico{background:#fff2df;color:#d97706}.purple .ico{background:#f1eaff;color:#7c3aed}.red .ico{background:#ffe8e8;color:#dc2626}
-.panel{background:#fff;border:1px solid var(--line);border-radius:15px;overflow:hidden;box-shadow:0 4px 16px #1d35570a}.panel-head{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}.panel-head h3{font-size:15px;font-weight:800;margin:0}.panel-head p{font-size:12px;color:var(--muted);margin:4px 0 0}.filters{padding:14px 20px;display:flex;gap:9px;flex-wrap:wrap}.filters .form-control,.filters .form-select{max-width:190px;font-size:12px}.table-responsive{overflow:auto}table{min-width:980px}thead th{background:#f7f9fc!important;color:#64748b!important;font-size:10px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}tbody td{font-size:12px;vertical-align:middle}.mine{background:#f4f8ff}.taskname{font-weight:750}.mine-tag{font-size:9px;color:#1d4ed8;background:#e3efff;border-radius:5px;padding:3px 5px;margin-left:4px}.pill{font-size:10px;font-weight:800;border-radius:20px;padding:5px 9px;background:#eef2f7;color:#475569}.pending{background:#fff3dc;color:#a16207}.in-progress,.assigned{background:#e8f1ff;color:#1d4ed8}.completed,.complete{background:#e5f8ed;color:#15803d}.incomplete{background:#fff0e6;color:#c2410c}.on-hold{background:#f1eaff;color:#6d28d9}.cancelled{background:#ffe8e8;color:#b91c1c}.actions{display:flex;gap:5px;white-space:nowrap}.btn-sm{font-size:11px;font-weight:700;border-radius:8px}.modal-content{border:0;border-radius:16px;overflow:hidden}.modal-header{background:linear-gradient(110deg,var(--navy),var(--navy2));color:#fff}.modal-header .btn-close{filter:invert(1)}.modal-title{font-weight:800;font-size:16px}.form-label{font-size:12px;font-weight:700;color:#475569}.form-control,.form-select{font-size:13px;border-radius:9px;padding:10px;border-color:#dce4ee}
-@media(max-width:1100px){.cards{grid-template-columns:repeat(3,1fr)}}@media(max-width:700px){.topbar{padding:14px}.navline{padding:0 8px}main{padding:18px 12px}.cards{grid-template-columns:repeat(2,1fr);gap:8px}.metric{padding:12px}.metric strong{font-size:21px}.welcome{display:block}.account .uname{display:none}}
-</style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MIS User Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="../css/admin-dashboard.css">
+    <style>
+        /* User dashboard content styles layered on top of the shared MIS layout */
+        .dashboard-content {
+            padding: 22px 20px 30px
+        }
+
+        .user-welcome {
+            display: flex;
+            justify-content: space-between;
+            align-items: end;
+            margin-bottom: 20px;
+            gap: 12px
+        }
+
+        .user-welcome h2 {
+            font-size: 23px;
+            font-weight: 800;
+            margin: 0;
+            color: var(--ink)
+        }
+
+        .user-welcome p {
+            color: var(--muted);
+            font-size: 13px;
+            margin: 5px 0 0
+        }
+
+        .user-cards {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 14px;
+            margin-bottom: 20px
+        }
+
+        .user-metric {
+            border: 1px solid var(--line);
+            background: #fff;
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-align: left;
+            box-shadow: 0 3px 12px #1d355710;
+            transition: transform .2s;
+            cursor: pointer;
+            color: var(--ink)
+        }
+
+        .user-metric:hover {
+            transform: translateY(-3px)
+        }
+
+        .user-metric .ico {
+            width: 44px;
+            height: 44px;
+            flex: 0 0 44px;
+            border-radius: 11px;
+            display: grid;
+            place-items: center;
+            font-size: 20px
+        }
+
+        .user-metric strong {
+            display: block;
+            font-size: 25px;
+            line-height: 1.1
+        }
+
+        .user-metric span {
+            font-size: 12px;
+            color: var(--muted);
+            font-weight: 700
+        }
+
+        .user-metric.blue .ico {
+            background: #e8f1ff;
+            color: #2563eb
+        }
+
+        .user-metric.green .ico {
+            background: #e4f8ed;
+            color: #159455
+        }
+
+        .user-metric.amber .ico {
+            background: #fff2df;
+            color: #d97706
+        }
+
+        .user-metric.purple .ico {
+            background: #f1eaff;
+            color: #7c3aed
+        }
+
+        .user-metric.red .ico {
+            background: #ffe8e8;
+            color: #dc2626
+        }
+
+        .user-task-panel {
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 3px 12px #1d35570a
+        }
+
+        .user-panel-head {
+            padding: 17px 18px;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px
+        }
+
+        .user-panel-head h3 {
+            font-size: 16px;
+            font-weight: 800;
+            margin: 0
+        }
+
+        .user-panel-head p {
+            font-size: 12px;
+            color: var(--muted);
+            margin: 4px 0 0
+        }
+
+        .user-filters {
+            padding: 13px 18px;
+            display: flex;
+            gap: 9px;
+            flex-wrap: wrap
+        }
+
+        .user-filters .form-control,
+        .user-filters .form-select {
+            max-width: 190px;
+            font-size: 12px
+        }
+
+        .user-task-panel .table-responsive {
+            overflow: auto
+        }
+
+        .user-task-panel table {
+            min-width: 1120px;
+            width: 100%;
+            table-layout: fixed
+        }
+
+        .user-task-panel thead th {
+            background: #f4f7fc;
+            color: #64748b;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+            white-space: nowrap;
+            padding: 11px 9px
+        }
+
+        .user-task-panel tbody td {
+            font-size: 12px;
+            vertical-align: middle;
+            padding: 10px 9px
+        }
+
+        .user-task-panel tbody tr:hover {
+            background: #f9fbff
+        }
+
+        .user-task-panel .mine {
+            background: #f4f8ff
+        }
+
+        .user-task-panel th:nth-child(1),
+        .user-task-panel td:nth-child(1) {
+            width: 105px
+        }
+
+        .user-task-panel th:nth-child(2),
+        .user-task-panel td:nth-child(2) {
+            width: 125px
+        }
+
+        .user-task-panel th:nth-child(3),
+        .user-task-panel td:nth-child(3) {
+            width: 220px
+        }
+
+        .user-task-panel th:nth-child(4),
+        .user-task-panel td:nth-child(4) {
+            width: 135px
+        }
+
+        .user-task-panel th:nth-child(5),
+        .user-task-panel td:nth-child(5) {
+            width: 135px
+        }
+
+        .user-task-panel th:nth-child(6),
+        .user-task-panel td:nth-child(6) {
+            width: 135px
+        }
+
+        .user-task-panel th:nth-child(7),
+        .user-task-panel td:nth-child(7) {
+            width: 110px
+        }
+
+        .user-task-panel th:nth-child(8),
+        .user-task-panel td:nth-child(8) {
+            width: 105px
+        }
+
+        .user-task-panel th:nth-child(9),
+        .user-task-panel td:nth-child(9) {
+            width: 190px
+        }
+
+        .user-task-panel tbody td {
+            overflow-wrap: anywhere
+        }
+
+        .task-issue-cell {
+            max-width: 220px;
+            white-space: normal;
+            overflow-wrap: anywhere
+        }
+
+        .taskname {
+            font-weight: 750;
+            line-height: 1.35
+        }
+
+        .task-description {
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 2;
+            overflow: hidden;
+            line-height: 1.35;
+            margin-top: 3px
+        }
+
+        .attachment-preview-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            max-width: 100%;
+            border: 0;
+            background: transparent;
+            padding: 0;
+            color: #0d6efd;
+            font-size: 12px;
+            text-align: left;
+            text-decoration: underline
+        }
+
+        .attachment-preview-btn span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap
+        }
+
+        .taskname {
+            font-weight: 750
+        }
+
+        .mine-tag {
+            font-size: 9px;
+            color: #1d4ed8;
+            background: #e3efff;
+            border-radius: 5px;
+            padding: 3px 5px;
+            margin-left: 4px
+        }
+
+        .pill {
+            font-size: 10px;
+            font-weight: 800;
+            border-radius: 20px;
+            padding: 5px 9px;
+            background: #eef2f7;
+            color: #475569
+        }
+
+        .pill.pending {
+            background: #fff3dc;
+            color: #a16207
+        }
+
+        .pill.in-progress,
+        .pill.assigned {
+            background: #e8f1ff;
+            color: #1d4ed8
+        }
+
+        .pill.completed,
+        .pill.complete {
+            background: #e5f8ed;
+            color: #15803d
+        }
+
+        .pill.incomplete {
+            background: #fff0e6;
+            color: #c2410c
+        }
+
+        .pill.on-hold {
+            background: #f1eaff;
+            color: #6d28d9
+        }
+
+        .pill.cancelled {
+            background: #ffe8e8;
+            color: #b91c1c
+        }
+
+        .actions {
+            display: flex;
+            gap: 5px;
+            white-space: nowrap
+        }
+
+        .user-task-panel .btn-sm {
+            font-size: 11px;
+            font-weight: 700;
+            border-radius: 7px
+        }
+
+        .modal-content {
+            border: 0;
+            border-radius: 14px;
+            overflow: hidden
+        }
+
+        .modal-header {
+            background: linear-gradient(110deg, var(--navy), var(--navy2));
+            color: #fff
+        }
+
+        .modal-header .btn-close {
+            filter: invert(1)
+        }
+
+        .modal-title {
+            font-weight: 800;
+            font-size: 16px
+        }
+
+        .form-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: #475569
+        }
+
+        .form-control,
+        .form-select {
+            font-size: 13px;
+            border-radius: 8px;
+            padding: 9px 10px;
+            border-color: #dce4ee
+        }
+
+        @media(max-width:1250px) {
+            .user-cards {
+                grid-template-columns: repeat(3, minmax(0, 1fr))
+            }
+        }
+
+        @media(max-width:700px) {
+            .dashboard-content {
+                padding: 14px 10px
+            }
+
+            .user-cards {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px
+            }
+
+            .user-metric {
+                padding: 10px;
+                gap: 8px
+            }
+
+            .user-metric strong {
+                font-size: 21px
+            }
+
+            .user-welcome {
+                display: block
+            }
+
+            .user-welcome>small {
+                display: block;
+                margin-top: 8px
+            }
+
+            .user-panel-head {
+                padding: 13px
+            }
+
+            .user-filters {
+                padding: 12px
+            }
+
+            .user-filters .form-control,
+            .user-filters .form-select {
+                max-width: none;
+                flex: 1 1 140px
+            }
+        }
+    </style>
 </head>
+
 <body>
-<header class="topbar">
- <div class="brand"><div class="brand-icon"><i class="bi bi-headset"></i></div><div><h1>MIS HELPDESK</h1><small>IT SUPPORT OPERATIONS · MIS USER</small></div></div>
- <div class="account"><button class="bell" data-bs-toggle="modal" data-bs-target="#notifications" title="Notifications"><i class="bi bi-bell"></i></button><div class="avatar"><?=h(mb_substr($userName,0,1))?></div><span class="uname small fw-semibold"><?=h($userName)?></span><a class="btn btn-sm btn-outline-light" href="../logout.php"><i class="bi bi-box-arrow-right"></i></a></div>
-</header>
-<nav class="navline"><a class="active" href="user-dashboard.php"><i class="bi bi-grid me-1"></i>Dashboard</a><a href="#taskGrid" data-view="mine"><i class="bi bi-person-check me-1"></i>My Tasks</a><a href="#taskGrid" data-view="all"><i class="bi bi-list-task me-1"></i>All Tasks</a><a href="leave-request.php" data-bs-toggle="modal" data-bs-target="#leaveRequestModal"><i class="bi bi-calendar-plus me-1"></i>File A Leave</a></nav>
-<main>
- <div class="welcome"><div><h2>Welcome back, <?=h($userName)?>!</h2><p>Manage your assigned work and view the MIS team's task queue.</p></div><small class="text-secondary">Updated <?=date('M d, Y')?></small></div>
- <section class="cards">
-  <button class="metric blue" data-card="all"><div class="ico"><i class="bi bi-clipboard-data"></i></div><div><strong><?=$counts['total']?></strong><span>My Assigned Tasks</span></div></button>
-  <button class="metric green" data-card="completed"><div class="ico"><i class="bi bi-check-circle"></i></div><div><strong><?=$counts['completed']?></strong><span>Completed</span></div></button>
-  <button class="metric orange" data-card="pending"><div class="ico"><i class="bi bi-hourglass-split"></i></div><div><strong><?=$counts['pending']?></strong><span>Pending</span></div></button>
-  <button class="metric purple" data-card="progress"><div class="ico"><i class="bi bi-gear"></i></div><div><strong><?=$counts['progress']?></strong><span>In Progress</span></div></button>
-  <button class="metric red" data-card="overdue"><div class="ico"><i class="bi bi-exclamation-triangle"></i></div><div><strong><?=$counts['overdue']?></strong><span>Overdue</span></div></button>
- </section>
- <section class="panel" id="taskGrid">
-  <div class="panel-head"><div><h3><i class="bi bi-kanban me-2 text-primary"></i>All Tasks</h3><p>Your tasks are displayed first. Reassign a task to yourself before updating it.</p></div><span class="badge text-bg-light"><?=count($tasks)?> records</span></div>
-  <div class="filters"><input class="form-control" id="search" placeholder="Search report, title, company..."><select class="form-select" id="filterStatus"><option value="">All statuses</option><?php foreach(['Pending','In Progress','Complete','Incomplete','On Hold','Cancelled'] as $s):?><option><?=h($s)?></option><?php endforeach;?></select><select class="form-select" id="filterCompany"><option value="">All companies</option><?php foreach($companies as $c):?><option><?=h($c['company_name'])?></option><?php endforeach;?></select><input class="form-control" type="date" id="dateFrom" title="Date from"><input class="form-control" type="date" id="dateTo" title="Date to"><button class="btn btn-outline-secondary btn-sm" id="reset">Reset</button><a class="btn btn-success btn-sm ms-auto" id="export" href="?export=excel"><i class="bi bi-file-earmark-excel"></i> Export Excel</a></div>
-  <div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Report No.</th><th>Date Requested</th><th>Task / Issue</th><th>Attachment</th><th>Company</th><th>Assigned To</th><th>Due Date</th><th>Status</th><th>Actions</th></tr></thead><tbody id="rows">
-  <?php if(!$tasks):?><tr><td colspan="9" class="text-center text-secondary p-4">No tasks found.</td></tr><?php endif;?>
-  <?php foreach($tasks as $t): $mine=(int)$t['assigned_user_id']===$userId; $sk=strtolower(str_replace(' ','-',(string)$t['status']));?>
-  <tr class="<?=$mine?'mine':''?>" data-mine="<?=$mine?1:0?>" data-status="<?=h(strtolower($t['status']))?>" data-company="<?=h($t['company_name'])?>" data-date="<?=h($t['created_at'])?>" data-search="<?=h(strtolower(($t['report_id']??'').' '.($t['title']??'').' '.($t['company_name']??'')))?>">
-   <td class="fw-bold"><?=h($t['report_id'] ?: $t['task_id'])?></td><td><?=h($t['created_at'] ?: '—')?></td>
-   <td><div class="taskname"><?=h($t['title'] ?: 'Untitled task')?><?=$mine?'<span class="mine-tag">MY TASK</span>':''?></div><small class="text-secondary"><?=h($t['description'] ?: '')?></small></td>
-   <td><?php $attachmentLink = attachmentUrl($t['attachment'] ?? ''); if ($attachmentLink): ?><a href="<?=h($attachmentLink)?>" target="_blank" rel="noopener noreferrer" class="text-primary text-decoration-underline"><i class="bi bi-paperclip me-1"></i><?=h(basename(str_replace('\\', '/', (string)$t['attachment'])))?></a><?php else: ?><span class="text-secondary">No attachment</span><?php endif; ?></td>
-   <td><?=h($t['company_name'] ?: '—')?></td><td><?=h($t['assigned_name'] ?: 'Unassigned')?></td><td><?=h($t['due_date'] ?: '—')?></td>
-   <td><span class="pill <?=h($sk)?>"><?=h($t['status'])?></span></td><td><div class="actions">
-    <?php if (!$mine && empty($t['assigned_user_id']) && strtolower(trim($t['status'])) === 'pending'): ?>
-    <button class="btn btn-success btn-sm accept-btn" data-id="<?=$t['task_id']?>" data-title="<?=h($t['title'] ?: 'Task')?>"><i class="bi bi-check2-circle"></i> Accept Task</button>
-    <?php elseif ($mine && in_array(strtolower(trim($t['status'])), ['in progress','incomplete','on hold'], true)): ?>
-    <button class="btn btn-primary btn-sm update-btn" data-task="<?=h(json_encode($t, JSON_HEX_APOS|JSON_HEX_QUOT|JSON_HEX_AMP|JSON_HEX_TAG))?>"><i class="bi bi-pencil-square"></i> Update</button>
-    <?php else: ?>
-    <button class="btn btn-outline-secondary btn-sm" disabled title="This task is not available for acceptance or updating."><i class="bi bi-lock"></i> Unavailable</button>
-    <?php endif; ?>
-    <button class="btn btn-outline-secondary btn-sm reassign-btn" data-id="<?=$t['task_id']?>" data-title="<?=h($t['title'] ?: 'Task')?>"><i class="bi bi-arrow-left-right"></i> Reassign</button>
-   </div></td>
-  </tr><?php endforeach;?>
-  </tbody></table></div>
- </section>
-</main>
+    <div class="app-shell">
+        <?php require __DIR__ . '/../includes/sidebar.php'; ?>
+        <main class="main-area">
+            <?php require __DIR__ . '/../includes/header.php'; ?>
+            <section class="dashboard-content">
+                <div class="user-welcome">
+                    <div>
+                        <p>Manage your assigned work and view the MIS team's task queue.</p>
+                    </div><small class="text-secondary">Updated <?= date('M d, Y') ?></small>
+                </div>
+                <section class="user-cards">
+                    <button class="user-metric blue" data-card="all">
+                        <div class="ico"><i class="bi bi-clipboard-data"></i></div>
+                        <div><strong><?= $counts['total'] ?></strong><span>My Assigned Tasks</span></div>
+                    </button>
+                    <button class="user-metric green" data-card="completed">
+                        <div class="ico"><i class="bi bi-check-circle"></i></div>
+                        <div><strong><?= $counts['completed'] ?></strong><span>Completed</span></div>
+                    </button>
+                    <button class="user-metric amber" data-card="pending">
+                        <div class="ico"><i class="bi bi-hourglass-split"></i></div>
+                        <div><strong><?= $counts['pending'] ?></strong><span>Pending</span></div>
+                    </button>
+                    <button class="user-metric purple" data-card="progress">
+                        <div class="ico"><i class="bi bi-gear"></i></div>
+                        <div><strong><?= $counts['progress'] ?></strong><span>In Progress</span></div>
+                    </button>
+                    <button class="user-metric red" data-card="overdue">
+                        <div class="ico"><i class="bi bi-exclamation-triangle"></i></div>
+                        <div><strong><?= $counts['overdue'] ?></strong><span>Overdue</span></div>
+                    </button>
+                </section>
+                <section class="user-task-panel" id="taskGrid">
+                    <div class="user-panel-head">
+                        <div>
+                            <h3><i class="bi bi-kanban me-2 text-primary"></i>All Tasks</h3>
+                            <p>Your tasks are displayed first. Reassign a task to yourself before updating it.</p>
+                        </div><span class="badge text-bg-light"><?= count($tasks) ?> records</span>
+                    </div>
+                    <div class="user-filters"><input class="form-control" id="search" placeholder="Search report, title, company..."><select class="form-select" id="filterStatus">
+                            <option value="">All statuses</option><?php foreach (['Pending', 'In Progress', 'Complete', 'Incomplete', 'On Hold', 'Cancelled'] as $s): ?><option><?= h($s) ?></option><?php endforeach; ?>
+                        </select><select class="form-select" id="filterCompany">
+                            <option value="">All companies</option><?php foreach ($companies as $c): ?><option><?= h($c['company_name']) ?></option><?php endforeach; ?>
+                        </select><input class="form-control" type="date" id="dateFrom" title="Date from"><input class="form-control" type="date" id="dateTo" title="Date to"><button class="btn btn-outline-secondary btn-sm" id="reset">Reset</button><a class="btn btn-success btn-sm ms-auto" id="export" href="?export=excel"><i class="bi bi-file-earmark-excel"></i> Export Excel</a></div>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Report No.</th>
+                                    <th>Date Requested</th>
+                                    <th>Task / Issue</th>
+                                    <th>Attachment</th>
+                                    <th>Company</th>
+                                    <th>Assigned To</th>
+                                    <th>Due Date</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rows">
+                                <?php if (!$tasks): ?><tr>
+                                        <td colspan="9" class="text-center text-secondary p-4">No tasks found.</td>
+                                    </tr><?php endif; ?>
+                                <?php foreach ($tasks as $t): $mine = (int)$t['assigned_user_id'] === $userId;
+                                    $sk = strtolower(str_replace(' ', '-', (string)$t['status'])); ?>
+                                    <tr class="<?= $mine ? 'mine' : '' ?>" data-mine="<?= $mine ? 1 : 0 ?>" data-status="<?= h(strtolower($t['status'])) ?>" data-company="<?= h($t['company_name']) ?>" data-date="<?= h($t['created_at']) ?>" data-search="<?= h(strtolower(($t['report_id'] ?? '') . ' ' . ($t['title'] ?? '') . ' ' . ($t['company_name'] ?? ''))) ?>">
+                                        <td class="fw-bold"><?= h($t['report_id'] ?: $t['task_id']) ?></td>
+                                        <td><?= h($t['created_at'] ?: '—') ?></td>
+                                        <td class="task-issue-cell">
+                                            <div class="taskname"><?= h($t['title'] ?: 'Untitled task') ?><?= $mine ? '<span class="mine-tag">MY TASK</span>' : '' ?></div><small class="text-secondary task-description"><?= h($t['description'] ?: '') ?></small>
+                                        </td>
+                                        <td><?php $attachmentLink = attachmentUrl($t['attachment'] ?? '');
+                                            if ($attachmentLink): ?><button type="button" class="attachment-preview-btn" data-attachment-url="<?= h($attachmentLink) ?>" data-attachment-name="<?= h(basename(str_replace('\\\\', '/', (string)$t['attachment']))) ?>"><i class="bi bi-paperclip"></i><span><?= h(basename(str_replace('\\\\', '/', (string)$t['attachment']))) ?></span></button><?php else: ?><span class="text-secondary">No attachment</span><?php endif; ?></td>
+                                        <td><?= h($t['company_name'] ?: '—') ?></td>
+                                        <td><?= h($t['assigned_name'] ?: 'Unassigned') ?></td>
+                                        <td><?= h($t['due_date'] ?: '—') ?></td>
+                                        <td><span class="pill <?= h($sk) ?>"><?= h($t['status']) ?></span></td>
+                                        <td>
+                                            <div class="actions">
+                                                <?php if (!$mine && empty($t['assigned_user_id']) && strtolower(trim($t['status'])) === 'pending'): ?>
+                                                    <button class="btn btn-success btn-sm accept-btn" data-id="<?= $t['task_id'] ?>" data-title="<?= h($t['title'] ?: 'Task') ?>"><i class="bi bi-check2-circle"></i> Accept Task</button>
+                                                <?php elseif ($mine && in_array(strtolower(trim($t['status'])), ['in progress', 'incomplete', 'on hold'], true)): ?>
+                                                    <button class="btn btn-primary btn-sm update-btn" data-task="<?= h(json_encode($t, JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG)) ?>"><i class="bi bi-pencil-square"></i> Update</button>
+                                                <?php else: ?>
+                                                    <button class="btn btn-outline-secondary btn-sm" disabled title="This task is not available for acceptance or updating."><i class="bi bi-lock"></i> Unavailable</button>
+                                                <?php endif; ?>
+                                                <button class="btn btn-outline-secondary btn-sm reassign-btn" data-id="<?= $t['task_id'] ?>" data-title="<?= h($t['title'] ?: 'Task') ?>"><i class="bi bi-arrow-left-right"></i> Reassign</button>
+                                            </div>
+                                        </td>
+                                    </tr><?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </section>
+        </main>
+    </div>
 
-<?php require __DIR__ . '/update-task-modal.php'; // Update Task modal separated for cleaner dashboard code ?>
-<div class="modal fade" id="reassignModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Reassign Task</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><form id="reassignForm"><div class="modal-body"><input type="hidden" name="action" value="reassign_task"><input type="hidden" name="task_id" id="reassignId"><p id="reassignTitle" class="small text-secondary"></p><label class="form-label">Assign To</label><select class="form-select" name="assigned_user_id" required><option value="">Select MIS User</option><?php foreach($misUsers as $u):?><option value="<?=$u['user_id']?>" <?=$u['user_id']==$userId?'selected':''?>><?=h($u['full_name'])?><?=$u['user_id']==$userId?' (Me)':''?></option><?php endforeach;?></select></div><div class="modal-footer"><button class="btn btn-light" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" type="submit">Save Assignment</button></div></form></div></div></div>
-<div class="modal fade" id="notifications" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Notifications</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body text-secondary small">Notification feed can be connected to your existing notifications table in the next step.</div></div></div></div>
-<!-- Request for Leave Form popup: dashboard header/navigation remain visible -->
-<div class="modal fade" id="leaveRequestModal" tabindex="-1" aria-labelledby="leaveRequestModalLabel" aria-hidden="true">
- <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" style="max-width:1180px;">
-  <div class="modal-content">
-   <div class="modal-header">
-    <h5 class="modal-title" id="leaveRequestModalLabel"><i class="bi bi-calendar-plus me-2"></i>Request for Leave Form</h5>
-    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-   </div>
-   <div class="modal-body p-0" style="height:82vh;min-height:560px;">
-    <iframe src="../leave-request-print-v2.php" title="Request for Leave Form" style="display:block;width:100%;height:100%;border:0;background:#f2f5f9;"></iframe>
-   </div>
-  </div>
- </div>
-</div>
-<div class="toast-container position-fixed bottom-0 end-0 p-3"><div id="toast" class="toast text-bg-dark"><div class="toast-body" id="toastText"></div></div></div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-const updateModal=new bootstrap.Modal('#updateModal'),reassignModal=new bootstrap.Modal('#reassignModal'),toast=new bootstrap.Toast('#toast');
-function message(t){document.getElementById('toastText').textContent=t;toast.show();}
-document.querySelectorAll('.update-btn:not(:disabled)').forEach(b=>b.addEventListener('click',()=>{
- const t=JSON.parse(b.dataset.task);document.getElementById('taskId').value=t.task_id;document.getElementById('modalReport').textContent='Report No. '+(t.report_id||t.task_id);document.getElementById('modalTitle').textContent=t.title||'Untitled task';document.getElementById('modalCompany').textContent=t.company_name||'—';const statusSelect=document.getElementById('modalStatus');statusSelect.innerHTML='';const choices=(String(t.status||'').toLowerCase()==='in progress')?['Complete','Incomplete','On Hold']:['In Progress'];choices.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;statusSelect.appendChild(o);});document.getElementById('modalDiagnosis').value=t.diagnosis||'';document.getElementById('modalAction').value=t.action_taken||'';document.getElementById('modalRecommendation').value=t.recommendation||'';syncUpdateFields();updateModal.show();
-}));
-function syncUpdateFields(){
- const status=document.getElementById('modalStatus').value;
- const isComplete=status==='Complete';
- const isIncomplete=status==='Incomplete';
- const isOnHold=status==='On Hold';
- const needsDiagnosis=isComplete||isIncomplete||isOnHold;
- const needsAction=isComplete||isIncomplete;
- const needsReason=isIncomplete||isOnHold;
+    <?php require __DIR__ . '/update-task-modal.php'; // Update Task modal separated for cleaner dashboard code 
+    ?>
 
- document.getElementById('diagnosisGroup').classList.toggle('d-none',!needsDiagnosis);
- document.getElementById('actionGroup').classList.toggle('d-none',!needsAction);
- document.getElementById('recommendationGroup').classList.toggle('d-none',!needsReason);
+    <div class="modal fade" id="attachmentModal" tabindex="-1" aria-labelledby="attachmentModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="attachmentModalLabel"><i class="bi bi-paperclip me-2"></i>Attachment Preview</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-0" style="height:78vh;min-height:420px;background:#f3f6fa">
+                    <iframe id="attachmentFrame" title="Attachment preview" style="width:100%;height:100%;border:0" loading="lazy"></iframe>
+                </div>
+                <div class="modal-footer">
+                    <a href="#" class="btn btn-outline-primary btn-sm" id="downloadAttachment" download><i class="bi bi-download me-1"></i>Download</a>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
- document.getElementById('modalDiagnosis').required=needsDiagnosis;
- document.getElementById('modalAction').required=needsAction;
- document.getElementById('modalRecommendation').required=needsReason;
+    <div class="modal fade" id="reassignModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Reassign Task</h5><button class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="reassignForm">
+                    <div class="modal-body"><input type="hidden" name="action" value="reassign_task"><input type="hidden" name="task_id" id="reassignId">
+                        <p id="reassignTitle" class="small text-secondary"></p><label class="form-label">Assign To</label><select class="form-select" name="assigned_user_id" required>
+                            <option value="">Select MIS User</option><?php foreach ($misUsers as $u): ?><option value="<?= $u['user_id'] ?>" <?= $u['user_id'] == $userId ? 'selected' : '' ?>><?= h($u['full_name']) ?><?= $u['user_id'] == $userId ? ' (Me)' : '' ?></option><?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="modal-footer"><button class="btn btn-light" type="button" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" type="submit">Save Assignment</button></div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <!-- Request for Leave Form popup: dashboard header/navigation remain visible -->
+    <div class="modal fade" id="leaveRequestModal" tabindex="-1" aria-labelledby="leaveRequestModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" style="max-width:1180px;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="leaveRequestModalLabel"><i class="bi bi-calendar-plus me-2"></i>Request for Leave Form</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-0" style="height:82vh;min-height:560px;">
+                    <iframe src="../leave-request-print-v2.php" title="Request for Leave Form" style="display:block;width:100%;height:100%;border:0;background:#f2f5f9;"></iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="toast" class="toast text-bg-dark">
+            <div class="toast-body" id="toastText"></div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const updateModal = new bootstrap.Modal('#updateModal'),
+            reassignModal = new bootstrap.Modal('#reassignModal'),
+            toast = new bootstrap.Toast('#toast');
 
- document.getElementById('diagnosisRequired').classList.toggle('d-none',!needsDiagnosis);
- document.getElementById('actionRequired').classList.toggle('d-none',!needsAction);
+        const attachmentModal = new bootstrap.Modal('#attachmentModal');
+        document.querySelectorAll('.attachment-preview-btn').forEach(button => button.addEventListener('click', () => {
+            const url = button.dataset.attachmentUrl;
+            const name = button.dataset.attachmentName || 'Attachment';
+            document.getElementById('attachmentModalLabel').textContent = name;
+            document.getElementById('attachmentFrame').src = url;
+            const download = document.getElementById('downloadAttachment');
+            download.href = url;
+            download.setAttribute('download', name);
+            attachmentModal.show();
+        }));
+        document.getElementById('attachmentModal').addEventListener('hidden.bs.modal', () => {
+            document.getElementById('attachmentFrame').src = 'about:blank';
+        });
 
- const reasonLabel=document.getElementById('recommendationLabel');
- const reasonHelp=document.getElementById('recommendationHelp');
- const reasonInput=document.getElementById('modalRecommendation');
- if(isOnHold){
-  reasonLabel.textContent='Reason for On Hold';
-  reasonInput.placeholder='Explain why work is temporarily on hold...';
-  reasonHelp.textContent='This is saved in the Recommendation field.';
- } else {
-  reasonLabel.textContent='Reason for Incomplete';
-  reasonInput.placeholder='Explain why this task cannot be completed yet and what is needed next...';
-  reasonHelp.textContent='This is saved in the Recommendation field.';
- }
+        function message(t) {
+            document.getElementById('toastText').textContent = t;
+            toast.show();
+        }
+        document.querySelectorAll('.update-btn:not(:disabled)').forEach(b => b.addEventListener('click', () => {
+            const t = JSON.parse(b.dataset.task);
+            document.getElementById('taskId').value = t.task_id;
+            document.getElementById('modalReport').textContent = 'Report No. ' + (t.report_id || t.task_id);
+            document.getElementById('modalTitle').textContent = t.title || 'Untitled task';
+            document.getElementById('modalCompany').textContent = t.company_name || '—';
+            const statusSelect = document.getElementById('modalStatus');
+            statusSelect.innerHTML = '';
+            const choices = (String(t.status || '').toLowerCase() === 'in progress') ? ['Complete', 'Incomplete', 'On Hold'] : ['In Progress'];
+            choices.forEach(v => {
+                const o = document.createElement('option');
+                o.value = v;
+                o.textContent = v;
+                statusSelect.appendChild(o);
+            });
+            document.getElementById('modalDiagnosis').value = t.diagnosis || '';
+            document.getElementById('modalAction').value = t.action_taken || '';
+            document.getElementById('modalRecommendation').value = t.recommendation || '';
+            syncUpdateFields();
+            updateModal.show();
+        }));
 
- const help=document.getElementById('updateHelp');
- const messages={
-  'In Progress':'The task will return to In Progress. No additional details are required. Existing notes will be preserved.',
-  'Complete':'Provide the diagnosis and describe the action taken.',
-  'Incomplete':'Provide the diagnosis, action taken, and the reason the task cannot be completed yet.',
-  'On Hold':'Provide the diagnosis and explain why the task is temporarily on hold.'
- };
- help.innerHTML='<i class="bi bi-info-circle text-primary me-1"></i>'+(
-  messages[status]||'Choose a status to see the information required for that update.'
- );
-}
-document.getElementById('modalStatus').addEventListener('change',syncUpdateFields);
-const acceptedTask=new URLSearchParams(location.search).get('accepted_task');if(acceptedTask){const acceptedButton=[...document.querySelectorAll('.update-btn')].find(b=>{try{return String(JSON.parse(b.dataset.task).task_id)===String(acceptedTask);}catch(e){return false;}});if(acceptedButton)acceptedButton.click();}
-document.querySelectorAll('.reassign-btn').forEach(b=>b.addEventListener('click',()=>{document.getElementById('reassignId').value=b.dataset.id;document.getElementById('reassignTitle').textContent='Reassign: '+b.dataset.title;reassignModal.show();}));
-document.querySelectorAll('.accept-btn').forEach(b=>b.addEventListener('click',async()=>{if(!confirm('Accept this task and change its status to In Progress?'))return;const fd=new FormData();fd.append('action','accept_task');fd.append('task_id',b.dataset.id);try{const r=await fetch(location.pathname,{method:'POST',body:fd});const j=await r.json();if(!r.ok||!j.ok)throw Error(j.message||'Unable to accept task.');message(j.message);setTimeout(()=>{location.href=location.pathname+'?accepted_task='+encodeURIComponent(b.dataset.id);},400);}catch(x){alert(x.message);}}));
-async function send(form){const r=await fetch(location.pathname,{method:'POST',body:new FormData(form)});const j=await r.json();if(!r.ok||!j.ok)throw Error(j.message||'Unable to save.');return j;}
-document.getElementById('updateForm').addEventListener('submit',async e=>{e.preventDefault();try{const r=await send(e.currentTarget);message(r.message);setTimeout(()=>location.reload(),600);}catch(x){alert(x.message);}});
-document.getElementById('reassignForm').addEventListener('submit',async e=>{e.preventDefault();try{const r=await send(e.currentTarget);message(r.message);setTimeout(()=>location.reload(),600);}catch(x){alert(x.message);}});
-function filterRows(){
- const q=document.getElementById('search').value.toLowerCase(),s=document.getElementById('filterStatus').value.toLowerCase(),c=document.getElementById('filterCompany').value,from=document.getElementById('dateFrom').value,to=document.getElementById('dateTo').value;
- document.querySelectorAll('#rows tr[data-search]').forEach(r=>{const d=(r.dataset.date||'').slice(0,10);r.hidden=!(r.dataset.search.includes(q)&&(!s||r.dataset.status===s)&&(!c||r.dataset.company===c)&&(!from||d>=from)&&(!to||d<=to));});
-}
-['search','filterStatus','filterCompany','dateFrom','dateTo'].forEach(id=>document.getElementById(id).addEventListener('input',filterRows));
-document.getElementById('reset').addEventListener('click',()=>{['search','filterStatus','filterCompany','dateFrom','dateTo'].forEach(id=>document.getElementById(id).value='');filterRows();});
-function exportUrl(){const p=new URLSearchParams({export:'excel'});[['company','filterCompany'],['status','filterStatus'],['from','dateFrom'],['to','dateTo']].forEach(([k,id])=>{const v=document.getElementById(id).value;if(v)p.set(k,v);});document.getElementById('export').href='?'+p.toString();}
-['filterCompany','filterStatus','dateFrom','dateTo'].forEach(id=>document.getElementById(id).addEventListener('change',exportUrl));
-document.querySelectorAll('[data-card]').forEach(b=>b.addEventListener('click',()=>{const k=b.dataset.card;document.querySelectorAll('#rows tr[data-search]').forEach(r=>{const own=r.dataset.mine==='1',s=r.dataset.status;r.hidden=k==='all'?!own:k==='completed'?!(own&&['complete','completed'].includes(s)):k==='pending'?!(own&&s==='pending'):k==='progress'?!(own&&s==='in progress'):!(own&&r.querySelector('.text-danger'));});document.getElementById('taskGrid').scrollIntoView({behavior:'smooth'});}));
-document.querySelectorAll('[data-view]').forEach(a=>a.addEventListener('click',()=>{document.querySelectorAll('#rows tr[data-search]').forEach(r=>r.hidden=a.dataset.view==='mine'&&r.dataset.mine!=='1');}));
-</script>
-</body></html>
+        function syncUpdateFields() {
+            const status = document.getElementById('modalStatus').value;
+            const isComplete = status === 'Complete';
+            const isIncomplete = status === 'Incomplete';
+            const isOnHold = status === 'On Hold';
+            const needsDiagnosis = isComplete || isIncomplete || isOnHold;
+            const needsAction = isComplete || isIncomplete;
+            const needsReason = isIncomplete || isOnHold;
+
+            document.getElementById('diagnosisGroup').classList.toggle('d-none', !needsDiagnosis);
+            document.getElementById('actionGroup').classList.toggle('d-none', !needsAction);
+            document.getElementById('recommendationGroup').classList.toggle('d-none', !needsReason);
+
+            document.getElementById('modalDiagnosis').required = needsDiagnosis;
+            document.getElementById('modalAction').required = needsAction;
+            document.getElementById('modalRecommendation').required = needsReason;
+
+            document.getElementById('diagnosisRequired').classList.toggle('d-none', !needsDiagnosis);
+            document.getElementById('actionRequired').classList.toggle('d-none', !needsAction);
+
+            const reasonLabel = document.getElementById('recommendationLabel');
+            const reasonHelp = document.getElementById('recommendationHelp');
+            const reasonInput = document.getElementById('modalRecommendation');
+            if (isOnHold) {
+                reasonLabel.textContent = 'Reason for On Hold';
+                reasonInput.placeholder = 'Explain why work is temporarily on hold...';
+                reasonHelp.textContent = 'This is saved in the Recommendation field.';
+            } else {
+                reasonLabel.textContent = 'Reason for Incomplete';
+                reasonInput.placeholder = 'Explain why this task cannot be completed yet and what is needed next...';
+                reasonHelp.textContent = 'This is saved in the Recommendation field.';
+            }
+
+            const help = document.getElementById('updateHelp');
+            const messages = {
+                'In Progress': 'The task will return to In Progress. No additional details are required. Existing notes will be preserved.',
+                'Complete': 'Provide the diagnosis and describe the action taken.',
+                'Incomplete': 'Provide the diagnosis, action taken, and the reason the task cannot be completed yet.',
+                'On Hold': 'Provide the diagnosis and explain why the task is temporarily on hold.'
+            };
+            help.innerHTML = '<i class="bi bi-info-circle text-primary me-1"></i>' + (
+                messages[status] || 'Choose a status to see the information required for that update.'
+            );
+        }
+        document.getElementById('modalStatus').addEventListener('change', syncUpdateFields);
+        const acceptedTask = new URLSearchParams(location.search).get('accepted_task');
+        if (acceptedTask) {
+            const acceptedButton = [...document.querySelectorAll('.update-btn')].find(b => {
+                try {
+                    return String(JSON.parse(b.dataset.task).task_id) === String(acceptedTask);
+                } catch (e) {
+                    return false;
+                }
+            });
+            if (acceptedButton) acceptedButton.click();
+        }
+        document.querySelectorAll('.reassign-btn').forEach(b => b.addEventListener('click', () => {
+            document.getElementById('reassignId').value = b.dataset.id;
+            document.getElementById('reassignTitle').textContent = 'Reassign: ' + b.dataset.title;
+            reassignModal.show();
+        }));
+        document.querySelectorAll('.accept-btn').forEach(b => b.addEventListener('click', async () => {
+            if (!confirm('Accept this task and change its status to In Progress?')) return;
+            const fd = new FormData();
+            fd.append('action', 'accept_task');
+            fd.append('task_id', b.dataset.id);
+            try {
+                const r = await fetch(location.pathname, {
+                    method: 'POST',
+                    body: fd
+                });
+                const j = await r.json();
+                if (!r.ok || !j.ok) throw Error(j.message || 'Unable to accept task.');
+                message(j.message);
+                setTimeout(() => {
+                    location.href = location.pathname + '?accepted_task=' + encodeURIComponent(b.dataset.id);
+                }, 400);
+            } catch (x) {
+                alert(x.message);
+            }
+        }));
+        async function send(form) {
+            const r = await fetch(location.pathname, {
+                method: 'POST',
+                body: new FormData(form)
+            });
+            const j = await r.json();
+            if (!r.ok || !j.ok) throw Error(j.message || 'Unable to save.');
+            return j;
+        }
+        document.getElementById('updateForm').addEventListener('submit', async e => {
+            e.preventDefault();
+            try {
+                const r = await send(e.currentTarget);
+                message(r.message);
+                setTimeout(() => location.reload(), 600);
+            } catch (x) {
+                alert(x.message);
+            }
+        });
+        document.getElementById('reassignForm').addEventListener('submit', async e => {
+            e.preventDefault();
+            try {
+                const r = await send(e.currentTarget);
+                message(r.message);
+                setTimeout(() => location.reload(), 600);
+            } catch (x) {
+                alert(x.message);
+            }
+        });
+
+        function filterRows() {
+            const q = document.getElementById('search').value.toLowerCase(),
+                s = document.getElementById('filterStatus').value.toLowerCase(),
+                c = document.getElementById('filterCompany').value,
+                from = document.getElementById('dateFrom').value,
+                to = document.getElementById('dateTo').value;
+            document.querySelectorAll('#rows tr[data-search]').forEach(r => {
+                const d = (r.dataset.date || '').slice(0, 10);
+                r.hidden = !(r.dataset.search.includes(q) && (!s || r.dataset.status === s) && (!c || r.dataset.company === c) && (!from || d >= from) && (!to || d <= to));
+            });
+        }
+        ['search', 'filterStatus', 'filterCompany', 'dateFrom', 'dateTo'].forEach(id => document.getElementById(id).addEventListener('input', filterRows));
+        document.getElementById('reset').addEventListener('click', () => {
+            ['search', 'filterStatus', 'filterCompany', 'dateFrom', 'dateTo'].forEach(id => document.getElementById(id).value = '');
+            filterRows();
+        });
+
+        function exportUrl() {
+            const p = new URLSearchParams({
+                export: 'excel'
+            });
+            [
+                ['company', 'filterCompany'],
+                ['status', 'filterStatus'],
+                ['from', 'dateFrom'],
+                ['to', 'dateTo']
+            ].forEach(([k, id]) => {
+                const v = document.getElementById(id).value;
+                if (v) p.set(k, v);
+            });
+            document.getElementById('export').href = '?' + p.toString();
+        }
+        ['filterCompany', 'filterStatus', 'dateFrom', 'dateTo'].forEach(id => document.getElementById(id).addEventListener('change', exportUrl));
+        document.querySelectorAll('[data-card]').forEach(b => b.addEventListener('click', () => {
+            const k = b.dataset.card;
+            document.querySelectorAll('#rows tr[data-search]').forEach(r => {
+                const own = r.dataset.mine === '1',
+                    s = r.dataset.status;
+                r.hidden = k === 'all' ? !own : k === 'completed' ? !(own && ['complete', 'completed'].includes(s)) : k === 'pending' ? !(own && s === 'pending') : k === 'progress' ? !(own && s === 'in progress') : !(own && r.querySelector('.text-danger'));
+            });
+            document.getElementById('taskGrid').scrollIntoView({
+                behavior: 'smooth'
+            });
+        }));
+        document.querySelectorAll('[data-view]').forEach(a => a.addEventListener('click', () => {
+            document.querySelectorAll('#rows tr[data-search]').forEach(r => r.hidden = a.dataset.view === 'mine' && r.dataset.mine !== '1');
+        }));
+    </script>
+    <?php require __DIR__ . '/../includes/footer.php'; ?>

@@ -91,7 +91,11 @@ $upcoming = $conn->query("SELECT t.task_id,t.report_id,t.title,t.status,t.due_da
 $recent = $conn->query('SELECT t.*,c.comp_name,u.full_name assignee_name FROM tasks t LEFT JOIN companies c ON c.comp_id=t.company_id LEFT JOIN users u ON u.user_id=t.assigned_id ORDER BY t.created_at DESC LIMIT 8')->fetchAll(PDO::FETCH_ASSOC);
 $associates = $conn->query("SELECT user_id,full_name FROM users WHERE LOWER(TRIM(role))='it associate' ORDER BY full_name")->fetchAll(PDO::FETCH_ASSOC);
 $userName = $_SESSION['full_name'] ?? $_SESSION['username'] ?? 'MIS Head';
-$initials = strtoupper(substr($userName, 0, 1));
+    $initials = strtoupper(substr($userName, 0, 1));
+    $layoutRole = 'admin';
+    $currentPage = 'dashboard';
+    $roleLabel = 'MIS HEAD';
+    $portalLabel = 'Admin Portal';
 ?>
 <!doctype html>
 <html lang="en">
@@ -105,25 +109,10 @@ $initials = strtoupper(substr($userName, 0, 1));
 
 <body>
     <div class="app-shell">
-        <aside class="sidebar" id="sidebar"><a class="brand" href="admin-dashboard.php"><span class="brand-icon">⚙</span><span><strong>MIS HELPDESK</strong><small>Admin Portal</small></span></a>
-            <nav class="side-nav">
-                <a class="nav-link active" href="admin-dashboard.php"><span>▦</span>Dashboard</a><a class="nav-link" href="admin-requests.php"><span>▤</span>IT Requests</a>
-                <div class="nav-label">TASK MANAGEMENT</div><a class="nav-link sub-link" href="admin-requests.php?status=Pending">◉ &nbsp; Pending</a><a class="nav-link sub-link" href="admin-requests.php?status=In%20Progress">◉ &nbsp; In Progress</a><a class="nav-link sub-link" href="admin-requests.php?status=Completed">◉ &nbsp; Completed</a><a class="nav-link sub-link" href="admin-requests.php?status=Cancelled">◉ &nbsp; Cancelled</a><a class="nav-link" href="admin-reports.php"><span>▥</span>Reports</a><a class="nav-link" href="admin-associates.php"><span>♙</span>IT Associates</a><a class="nav-link" href="../logout.php">
-                    <span>⇥</span>
-                    Logout
-                </a>
-            </nav>
-            <div class="sidebar-foot">IT SERVICE MANAGEMENT<br><small>Admin workspace</small></div>
-        </aside>
-        <main class="main-area">
-            <header class="topbar"><button class="menu-toggle" id="menuToggle">☰</button>
-                <div class="welcome">
-                    <h1>Welcome, <?= h($userName) ?>!</h1>
-                    <p>MIS HEAD <span>(Administrator)</span></p>
-                </div>
-                <div class="profile-area"><span class="avatar"><?= h($initials) ?></span><span class="profile-name"><?= h($userName) ?><small>MIS HEAD</small></span></div>
-            </header>
-            <section class="dashboard-content">
+        <?php require __DIR__ . '/../includes/sidebar.php'; ?>
+<main class="main-area">
+            <?php require __DIR__ . '/../includes/header.php'; ?>
+<section class="dashboard-content">
                 <?php if ($success): ?><div class="alert success"><?= h($success) ?></div><?php endif; ?><?php if ($error): ?><div class="alert error"><?= h($error) ?></div><?php endif; ?>
                 <section class="stat-grid"><a class="stat-card blue" href="admin-requests.php"><span class="stat-icon">▤</span><span><strong><?= $total ?></strong><small>Total Requests</small></span><b>›</b></a><a class="stat-card amber" href="admin-requests.php?status=Pending"><span class="stat-icon">◷</span><span><strong><?= $pending ?></strong><small>Pending Requests</small></span><b>›</b></a><a class="stat-card green" href="admin-requests.php?status=Completed"><span class="stat-icon">✓</span><span><strong><?= $completed ?></strong><small>Completed Requests</small></span><b>›</b></a><a class="stat-card red" href="admin-requests.php?status=Cancelled"><span class="stat-icon">×</span><span><strong><?= $cancelled ?></strong><small>Cancelled Requests</small></span><b>›</b></a></section>
                 <section class="two-col">
@@ -295,8 +284,5 @@ $initials = strtoupper(substr($userName, 0, 1));
         }
         document.getElementById('closeDialog').addEventListener('click', closeDialog);
         document.getElementById('cancelDialog').addEventListener('click', closeDialog);
-        document.getElementById('menuToggle').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('open'));
     </script>
-</body>
-
-</html>
+<?php require __DIR__ . '/../includes/footer.php'; ?>
