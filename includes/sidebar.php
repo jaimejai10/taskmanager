@@ -2,6 +2,7 @@
 $layoutRole = $layoutRole ?? 'user';
 $currentPage = $currentPage ?? '';
 $portalLabel = $portalLabel ?? 'User Portal';
+$navBase = $navBase ?? '';
 
 $adminLinks = [
  ['key'=>'dashboard','label'=>'Dashboard','icon'=>'▦','href'=>'admin-dashboard.php'],
@@ -23,7 +24,7 @@ $userLinks = [
 $navLinks = $layoutRole === 'admin' ? $adminLinks : $userLinks;
 ?>
 <aside class="sidebar" id="sidebar">
- <a class="brand" href="<?= $layoutRole === 'admin' ? 'admin-dashboard.php' : 'user-dashboard.php' ?>">
+ <a class="brand" href="<?= $navBase . ($layoutRole === 'admin' ? 'admin-dashboard.php' : 'user-dashboard.php') ?>">
   <span class="brand-icon">⚙</span><span><strong>MIS HELPDESK</strong><small><?= htmlspecialchars($portalLabel, ENT_QUOTES, 'UTF-8') ?></small></span>
  </a>
  <nav class="side-nav">
@@ -32,7 +33,13 @@ $navLinks = $layoutRole === 'admin' ? $adminLinks : $userLinks;
    <div class="nav-label"><?= htmlspecialchars($item['section'], ENT_QUOTES, 'UTF-8') ?></div>
   <?php else: ?>
    <a class="nav-link <?= !empty($item['sub']) ? 'sub-link' : '' ?> <?= $currentPage === $item['key'] ? 'active' : '' ?>"
-      href="<?= htmlspecialchars($item['href'], ENT_QUOTES, 'UTF-8') ?>"
+      href="<?= htmlspecialchars(
+          (isset($item['view']) || isset($item['modal']) || str_starts_with($item['href'], '#'))
+            ? $item['href']
+            : $navBase . $item['href'],
+          ENT_QUOTES,
+          'UTF-8'
+       ) ?>"
       <?= isset($item['view']) ? 'data-view="' . htmlspecialchars($item['view'], ENT_QUOTES, 'UTF-8') . '"' : '' ?>
       <?= isset($item['modal']) ? 'data-bs-toggle="modal" data-bs-target="#' . htmlspecialchars($item['modal'], ENT_QUOTES, 'UTF-8') . '"' : '' ?>>
     <span><?= htmlspecialchars($item['icon'], ENT_QUOTES, 'UTF-8') ?></span><?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8') ?>

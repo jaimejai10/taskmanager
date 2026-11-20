@@ -18,7 +18,7 @@ $roleLabel = $roleLabel ?? 'MIS USER';
    <span class="notification-dot" aria-hidden="true"></span>
   </button>
 
-  <a class="profile-area" href="#" aria-label="User profile">
+  <a class="profile-area" href="/account/my-account.php" aria-label="Open account profile" title="My Account">
    <span class="avatar"><?= htmlspecialchars((string)$initials, ENT_QUOTES, 'UTF-8') ?></span>
    <span class="profile-name">
     <?= htmlspecialchars((string)$userName, ENT_QUOTES, 'UTF-8') ?>
