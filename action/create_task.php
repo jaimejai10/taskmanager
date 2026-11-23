@@ -217,12 +217,51 @@ if (!preg_match('/^(09\d{9}|\+639\d{9})$/', $requester_no)) {
 // 10. VALIDATE OPTIONAL DUE DATE
 // ========================================
 
+// ========================================
+ // HELPER: CALCULATE DUE DATE BY PRIORITY
+ // Working days are Monday-Saturday; Sunday is skipped.
+ // ========================================
+
+function calculate_priority_due_date(string $priority): string
+{
+    $workingDaysToAdd = [
+        'Urgent' => 0,
+        'High'   => 3,
+        'Medium' => 5,
+        'Low'    => 7
+    ];
+
+    $timezone = new DateTimeZone('Asia/Manila');
+    $date = new DateTimeImmutable('today', $timezone);
+
+    // Requests should not be processed on Sunday. If one reaches the
+    // server on Sunday, begin the calculation from Monday.
+    if ((int) $date->format('w') === 0) {
+        $date = $date->modify('+1 day');
+    }
+
+    $remainingDays = $workingDaysToAdd[$priority] ?? 5;
+
+    while ($remainingDays > 0) {
+        $date = $date->modify('+1 day');
+
+        // Sunday = 0; Monday-Saturday count as working days.
+        if ((int) $date->format('w') !== 0) {
+            $remainingDays--;
+        }
+    }
+
+    return $date->format('Y-m-d');
+}
+
+
 $due_date = null;
 
 if ($due_date_input !== '') {
     $date = DateTime::createFromFormat(
         '!Y-m-d',
-        $due_date_input
+        $due_date_input,
+        new DateTimeZone('Asia/Manila')
     );
 
     if (
@@ -232,7 +271,16 @@ if ($due_date_input !== '') {
         fail_request("Please provide a valid due date.");
     }
 
+    // A manually selected date is preserved, but Sunday is not an
+    // available working day for MIS Helpdesk deadlines.
+    if ((int) $date->format('w') === 0) {
+        fail_request("Please select a due date from Monday to Saturday. Sundays are non-working days.");
+    }
+
     $due_date = $due_date_input;
+} else {
+    // Do not rely on JavaScript: calculate the deadline on the server too.
+    $due_date = calculate_priority_due_date($priority);
 }
 
 // ========================================

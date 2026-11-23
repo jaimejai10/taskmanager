@@ -96,7 +96,11 @@ $users = get_all_users($conn);
                     </select>
                     <div class="hint">Choose Urgent only for critical business interruptions.</div>
                 </div>
-                <div class="field"><label for="due_date">Due Date <span class="optional">(Optional)</span></label><input type="date" name="due_date" id="due_date"></div>
+                <div class="field">
+                    <label for="due_date">Due Date <span class="optional">(Auto-suggested)</span></label>
+                    <input type="date" name="due_date" id="due_date">
+                    <div class="hint">Automatically suggested based on priority. You may change it manually.</div>
+                </div>
             </div>
         </section>
 
@@ -171,6 +175,68 @@ attachment.addEventListener('change', function () {
 
     fileName.textContent = '✓ ' + file.name;
 });
+
+// Automatically suggest a due date based on priority.
+// Working days are Monday-Saturday; Sunday is skipped.
+const priorityField = document.getElementById('priority');
+const dueDateField = document.getElementById('due_date');
+let dueDateWasManuallyChanged = false;
+
+function getSuggestedDueDate(priority) {
+    const workingDaysToAdd = {
+        Urgent: 0,
+        High: 3,
+        Medium: 5,
+        Low: 7
+    };
+
+    const date = new Date();
+    date.setHours(12, 0, 0, 0);
+
+    // If the form is opened/submitted on Sunday, start from Monday.
+    if (date.getDay() === 0) {
+        date.setDate(date.getDate() + 1);
+    }
+
+    let remainingDays = workingDaysToAdd[priority] ?? 5;
+
+    while (remainingDays > 0) {
+        date.setDate(date.getDate() + 1);
+
+        // Sunday (0) is not a working day.
+        if (date.getDay() !== 0) {
+            remainingDays--;
+        }
+    }
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
+}
+
+function updateSuggestedDueDate() {
+    if (!dueDateWasManuallyChanged) {
+        dueDateField.value = getSuggestedDueDate(priorityField.value);
+    }
+}
+
+// Mark a non-empty date as manually selected.
+// Clearing the field restores automatic calculation.
+dueDateField.addEventListener('change', function () {
+    dueDateWasManuallyChanged = this.value !== '';
+
+    if (!dueDateWasManuallyChanged) {
+        updateSuggestedDueDate();
+    }
+});
+
+priorityField.addEventListener('change', updateSuggestedDueDate);
+
+// Populate the initial suggestion when the form loads.
+updateSuggestedDueDate();
+
 document.getElementById('requestForm').addEventListener('submit',function(e){if(!this.checkValidity()){e.preventDefault();this.reportValidity();return;}if(category.value==='Others'&&!description.value.trim()){e.preventDefault();alert('Please specify the issue in the description.');description.focus();}});
 </script>
 

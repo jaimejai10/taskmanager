@@ -72,6 +72,17 @@ function monitorFetch(PDO $conn, string $period): array
     $stmt->execute([':start' => $start]);
     $metrics = $stmt->fetch();
 
+    // Detect optional task columns so this monitoring page remains compatible
+    // with installations that do not yet have priority or updated_at.
+    $taskColumns = [];
+    foreach ($conn->query("SHOW COLUMNS FROM tasks")->fetchAll() as $column) {
+        $taskColumns[strtolower($column['Field'])] = true;
+    }
+
+    $prioritySelect = isset($taskColumns['priority'])
+        ? "t.priority AS task_priority"
+        : "NULL AS task_priority";
+
     // Latest 10 requests, newest first.
     $requests = $conn->query("
         SELECT
@@ -81,10 +92,15 @@ function monitorFetch(PDO $conn, string $period): array
             t.category,
             t.status,
             t.requested_by,
+            t.assigned_id,
             t.created_at,
-            c.comp_name AS company_name
+            t.due_date,
+            {$prioritySelect},
+            COALESCE(NULLIF(c.comp_short_name, ''), c.comp_name) AS company_name,
+            assigned_user.full_name AS assigned_to_name
         FROM tasks t
         LEFT JOIN companies c ON c.comp_id = t.company_id
+        LEFT JOIN users assigned_user ON assigned_user.user_id = t.assigned_id
         ORDER BY
             CASE
                 WHEN LOWER(TRIM(t.status)) = 'pending' THEN 1
@@ -245,6 +261,24 @@ if (isset($_GET['ajax'])) {
 /* Overdue summary card accent; all other dashboard styling stays in css/monitor.css. */
 .metric-card.red { background: linear-gradient(110deg, #b91c1c, #450a0a); border-color: rgba(255, 92, 101, 0.45); color: #fff; }
 .metric-card.red .icon { color: #ffb4b8; }
+
+/* Additional monitoring table fields */
+.priority-badge {
+    display: inline-block;
+    padding: 4px 7px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+    background: rgba(148, 163, 184, .16);
+    color: var(--text, #cbd5e1);
+}
+.priority-critical { background: rgba(239, 68, 68, .20); color: #f87171; }
+.priority-high { background: rgba(245, 158, 11, .20); color: #fbbf24; }
+.priority-normal { background: rgba(59, 130, 246, .18); color: #60a5fa; }
+.priority-low { background: rgba(34, 197, 94, .18); color: #4ade80; }
+.age-value { white-space: nowrap; font-weight: 600; }
+
 </style>
 </head>
 <body>
@@ -317,10 +351,12 @@ if (isset($_GET['ajax'])) {
             <table>
                 <thead><tr>
                     <th>#</th><th>REPORT NO.</th><th>DATE / TIME</th>
-                    <th>REQUEST / ISSUE</th><th>COMPANY</th><th>STATUS</th>
+                    <th>REQUEST / ISSUE</th><th>COMPANY</th>
+                    <th>ASSIGNED TO</th><th>PRIORITY</th><th>DUE DATE</th>
+                    <th>AGE / WAITING</th><th>STATUS</th>
                 </tr></thead>
                 <tbody id="incomingRequests">
-                    <tr><td colspan="6" class="empty">Loading tasks...</td></tr>
+                    <tr><td colspan="10" class="empty">Loading tasks...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -377,7 +413,7 @@ if (isset($_GET['ajax'])) {
     <p id="popupDetails"></p>
     <small id="popupCountdown"></small>
 </div>
-<button id="soundToggle" class="sound" type="button">🔇 Enable Sound</button>
+<button id="soundToggle" class="sound" type="button">🔊 Sound On · activate</button>
 
 <script>
 "use strict";
@@ -389,7 +425,8 @@ const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({
 
 let firstLoad = true;
 let knownTaskIds = new Set();
-let soundEnabled = false;
+let soundEnabled = true; // Default preference is ON; browser audio unlocks after first interaction.
+let soundUnlocked = false;
 const notificationAudio = new Audio("sounds/notification.mp3");
 notificationAudio.preload = "auto";
 let popupTimeout = null;
@@ -411,24 +448,48 @@ $("themeToggle").addEventListener("click", () => {
         ? "🌙 Dark Mode" : "☀️ Light Mode";
 });
 
-async function toggleSound() {
-    if (soundEnabled) {
+async function unlockNotificationSound() {
+    if (soundUnlocked) return true;
+
+    try {
+        // Most browsers block audible autoplay until a user gesture.
+        notificationAudio.muted = true;
+        notificationAudio.currentTime = 0;
+        await notificationAudio.play();
+        notificationAudio.pause();
+        notificationAudio.currentTime = 0;
+        notificationAudio.muted = false;
+        soundUnlocked = true;
+        soundEnabled = true;
+        $("soundToggle").textContent = "🔊 Sound On";
+        return true;
+    } catch (error) {
+        notificationAudio.muted = false;
+        soundEnabled = true;
+        $("soundToggle").textContent = "🔊 Sound On · activate";
+        return false;
+    }
+}
+
+function toggleSound() {
+    if (soundEnabled && soundUnlocked) {
         soundEnabled = false;
         notificationAudio.pause();
         notificationAudio.currentTime = 0;
-    } else {
-        // Browser audio must be started by a user action. This button also tests the sound.
-        try {
-            notificationAudio.currentTime = 0;
-            await notificationAudio.play();
-            soundEnabled = true;
-        } catch (e) {
-            soundEnabled = false;
-            alert("Could not play the notification sound. Check that sounds/notification.mp3 exists and that your browser supports the file.");
-        }
+        $("soundToggle").textContent = "🔇 Sound Off";
+        return;
     }
-    $("soundToggle").textContent = soundEnabled ? "🔊 Sound On" : "🔇 Enable Sound";
+
+    soundEnabled = true;
+    unlockNotificationSound();
 }
+
+// Unlock sound on the first click/tap/key press anywhere on the page.
+const firstInteractionUnlock = () => {
+    if (!soundUnlocked) unlockNotificationSound();
+};
+document.addEventListener("pointerdown", firstInteractionUnlock, { once: true });
+document.addEventListener("keydown", firstInteractionUnlock, { once: true });
 
 function playSound() {
     if (!soundEnabled) return;
@@ -488,11 +549,43 @@ function formatDate(value) {
     });
 }
 
+function formatShortDate(value) {
+    if (!value) return "—";
+    const d = new Date(String(value).replace(" ", "T"));
+    if (Number.isNaN(d.getTime())) return String(value);
+    return d.toLocaleString([], {
+        month: "short", day: "2-digit", year: "numeric"
+    });
+}
+
+function formatAge(value) {
+    if (!value) return "—";
+    const created = new Date(String(value).replace(" ", "T"));
+    if (Number.isNaN(created.getTime())) return "—";
+
+    const minutes = Math.max(0, Math.floor((Date.now() - created.getTime()) / 60000));
+    const days = Math.floor(minutes / 1440);
+    const hours = Math.floor((minutes % 1440) / 60);
+    const mins = minutes % 60;
+
+    if (days > 0) return days + "d " + hours + "h";
+    if (hours > 0) return hours + "h " + mins + "m";
+    return mins + "m";
+}
+
+function priorityClass(priority) {
+    const p = String(priority || "").toLowerCase();
+    if (p.includes("critical") || p.includes("urgent")) return "priority-critical";
+    if (p === "high") return "priority-high";
+    if (p === "low") return "priority-low";
+    return "priority-normal";
+}
+
 function renderRequests(items) {
     $("requestCount").textContent = items.length;
     if (!items.length) {
         $("incomingRequests").innerHTML =
-            '<tr><td colspan="6" class="empty">No requests found in the database.</td></tr>';
+            '<tr><td colspan="10" class="empty">No requests found in the database.</td></tr>';
         return;
     }
 
@@ -503,7 +596,11 @@ function renderRequests(items) {
             <td>${esc(formatDate(t.created_at))}</td>
             <td><strong>${esc(t.title || "Untitled task")}</strong>
                 <div class="sub">${esc(t.category || "")}</div></td>
-            <td>${esc(t.company_name || t.requested_by || "—")}</td>
+            <td>${esc(t.company_name || "—")}</td>
+            <td>${esc(t.assigned_to_name || "Unassigned")}</td>
+            <td><span class="priority-badge ${priorityClass(t.task_priority)}">${esc(t.task_priority || "—")}</span></td>
+            <td>${esc(formatShortDate(t.due_date))}</td>
+            <td><span class="age-value">${esc(formatAge(t.created_at))}</span></td>
             <td><span class="badge ${statusClass(t.status)}">${esc(t.display_status || t.status)}</span></td>
         </tr>
     `).join("");
