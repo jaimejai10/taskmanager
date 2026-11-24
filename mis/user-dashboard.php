@@ -115,16 +115,16 @@ try {
         if (!$task) reply(false, 'Task not found.', 404);
 
         if (($_POST['action'] ?? '') === 'accept_task') {
-            // Only an unassigned Pending task can be accepted. The conditional UPDATE
-            // prevents two technicians from accepting the same task simultaneously.
+            // Any Pending task can be claimed, even if it is currently assigned
+            // to another technician. The conditional UPDATE ensures only one
+            // technician can accept it while its status is still Pending.
             $accept = $conn->prepare("UPDATE tasks SET `$assignCol` = ?, status = 'In Progress'
-                WHERE task_id = ? AND ( `$assignCol` IS NULL OR `$assignCol` = 0 )
-                AND LOWER(TRIM(status)) = 'pending'");
+                WHERE task_id = ? AND LOWER(TRIM(status)) = 'pending'");
             $accept->execute([$userId, $taskId]);
             if ($accept->rowCount() !== 1) {
-                reply(false, 'This task is no longer available. It may already have been accepted or its status changed. Refresh the dashboard.', 409);
+                reply(false, 'This task is no longer pending. Another technician may already have accepted it. Refresh the dashboard.', 409);
             }
-            reply(true, 'Task accepted. Status changed to In Progress.');
+            reply(true, 'Task accepted and assigned to you. Status changed to In Progress.');
         }
 
         if (($_POST['action'] ?? '') === 'update_task') {
@@ -258,7 +258,7 @@ try {
     $dueMetric = $fields['due_date'] ? "SUM(CASE WHEN t.`{$fields['due_date']}` IS NOT NULL AND t.`{$fields['due_date']}` < CURDATE() AND LOWER(TRIM(t.status)) NOT IN ('complete','completed','cancelled') THEN 1 ELSE 0 END)" : '0';
     $metricSql = "SELECT COUNT(*) AS total,
         SUM(CASE WHEN LOWER(TRIM(t.status)) IN ('complete','completed') THEN 1 ELSE 0 END) AS completed,
-        SUM(CASE WHEN LOWER(TRIM(t.status)) = 'pending' THEN 1 ELSE 0 END) AS pending,
+        (SELECT COUNT(*) FROM tasks p WHERE LOWER(TRIM(p.status)) = 'pending') AS pending,
         SUM(CASE WHEN LOWER(TRIM(t.status)) IN ('in progress','in_progress') THEN 1 ELSE 0 END) AS progress,
         $dueMetric AS overdue
         FROM tasks t WHERE t.`$assignCol` = ?";
@@ -275,8 +275,12 @@ try {
 
     // Optional task-card shortcuts are also applied by MySQL, not just the visible page.
     if ($mineFilter !== '') {
-        $where[] = "t.`$assignCol` = ?";
-        $filterParams[] = $userId;
+        // Pending is a shared queue, so show Pending tasks assigned to anyone
+        // as well as unassigned Pending tasks. Other cards remain user-specific.
+        if ($mineFilter !== 'pending') {
+            $where[] = "t.`$assignCol` = ?";
+            $filterParams[] = $userId;
+        }
         if ($mineFilter === 'completed') $where[] = "LOWER(TRIM(t.status)) IN ('complete','completed')";
         elseif ($mineFilter === 'pending') $where[] = "LOWER(TRIM(t.status)) = 'pending'";
         elseif ($mineFilter === 'progress') $where[] = "LOWER(TRIM(t.status)) IN ('in progress','in_progress')";
@@ -828,7 +832,7 @@ $portalLabel = 'User Portal';
                     <div class="user-panel-head">
                         <div>
                             <h3><i class="bi bi-kanban me-2 text-primary"></i>All Tasks</h3>
-                            <p>Your tasks are displayed first. Reassign a task to yourself before updating it.</p>
+                            <p>Your assigned tasks appear first. Accept any Pending task to assign it to yourself before updating it.</p>
                         </div><span class="badge text-bg-light"><?= number_format($totalRecords) ?> records</span>
                     </div>
                     <form class="user-filters" id="filterForm" method="get" action="">
@@ -883,7 +887,7 @@ $portalLabel = 'User Portal';
                                         <td><span class="pill <?= h($sk) ?>"><?= h($t['status']) ?></span></td>
                                         <td>
                                             <div class="actions">
-                                                <?php if (!$mine && empty($t['assigned_user_id']) && strtolower(trim($t['status'])) === 'pending'): ?>
+                                                <?php if (strtolower(trim($t['status'])) === 'pending'): ?>
                                                     <button class="btn btn-success btn-sm accept-btn" data-id="<?= $t['task_id'] ?>" data-title="<?= h($t['title'] ?: 'Task') ?>"><i class="bi bi-check2-circle"></i> Accept Task</button>
                                                 <?php elseif ($mine && in_array(strtolower(trim($t['status'])), ['in progress', 'incomplete', 'on hold'], true)): ?>
                                                     <button class="btn btn-primary btn-sm update-btn" data-task="<?= h(json_encode($t, JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG)) ?>"><i class="bi bi-pencil-square"></i> Update</button>

@@ -80,7 +80,7 @@ header {
 body.light .metric-card { color: white; }
 .content-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.85fr) minmax(320px, 1fr);
+    grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
     grid-template-areas:
         "requests team"
         "requests leave"
@@ -172,7 +172,7 @@ footer { display: flex; justify-content: space-between; gap: 12px; color: var(--
 .empty { text-align: center; padding: 25px 10px; color: var(--muted); }
 @media (min-width: 1400px) {
     .requests-panel { min-height: 490px; }
-    .content-grid { grid-template-columns: minmax(0, 1.85fr) minmax(360px, 1fr); }
+    .content-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); }
 }
 @media (max-width: 1050px) {
     .content-grid {
