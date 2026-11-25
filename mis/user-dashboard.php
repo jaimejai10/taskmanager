@@ -285,8 +285,9 @@ try {
     $dueMetric = $fields['due_date'] ? "SUM(CASE WHEN t.`{$fields['due_date']}` IS NOT NULL AND t.`{$fields['due_date']}` < CURDATE() AND LOWER(TRIM(t.status)) NOT IN ('complete','completed','cancelled') THEN 1 ELSE 0 END)" : '0';
     $metricSql = "SELECT COUNT(*) AS total,
         SUM(CASE WHEN LOWER(TRIM(t.status)) IN ('complete','completed') THEN 1 ELSE 0 END) AS completed,
-        (SELECT COUNT(*) FROM tasks p WHERE LOWER(TRIM(p.status)) = 'pending') AS pending,
+        SUM(CASE WHEN LOWER(TRIM(t.status)) = 'pending' THEN 1 ELSE 0 END) AS pending,
         SUM(CASE WHEN LOWER(TRIM(t.status)) IN ('in progress','in_progress') THEN 1 ELSE 0 END) AS progress,
+        SUM(CASE WHEN LOWER(TRIM(t.status)) = 'on hold' THEN 1 ELSE 0 END) AS on_hold,
         $dueMetric AS overdue
         FROM tasks t WHERE t.`$assignCol` = ?";
     $metricStmt = $conn->prepare($metricSql);
@@ -297,22 +298,21 @@ try {
         'completed' => (int)($metricRow['completed'] ?? 0),
         'pending' => (int)($metricRow['pending'] ?? 0),
         'progress' => (int)($metricRow['progress'] ?? 0),
+        'on_hold' => (int)($metricRow['on_hold'] ?? 0),
         'overdue' => (int)($metricRow['overdue'] ?? 0)
     ];
 
     // Optional task-card shortcuts are also applied by MySQL, not just the visible page.
     if ($mineFilter !== '') {
-        // Pending is a shared queue, so show Pending tasks assigned to anyone
-        // as well as unassigned Pending tasks. Other cards remain user-specific.
-        if ($mineFilter !== 'pending') {
-            $where[] = "t.`$assignCol` = ?";
-            $filterParams[] = $userId;
-        }
+        // Every status card uses the same scope: tasks assigned to this user.
+        $where[] = "t.`$assignCol` = ?";
+        $filterParams[] = $userId;
         if ($mineFilter === 'completed') $where[] = "LOWER(TRIM(t.status)) IN ('complete','completed')";
         elseif ($mineFilter === 'pending') $where[] = "LOWER(TRIM(t.status)) = 'pending'";
         elseif ($mineFilter === 'progress') $where[] = "LOWER(TRIM(t.status)) IN ('in progress','in_progress')";
+        elseif ($mineFilter === 'on_hold') $where[] = "LOWER(TRIM(t.status)) = 'on hold'";
         elseif ($mineFilter === 'overdue' && $fields['due_date']) $where[] = "t.`{$fields['due_date']}` IS NOT NULL AND t.`{$fields['due_date']}` < CURDATE() AND LOWER(TRIM(t.status)) NOT IN ('complete','completed','cancelled')";
-        elseif (!in_array($mineFilter, ['all', 'completed', 'pending', 'progress', 'overdue'], true)) array_pop($where);
+        elseif (!in_array($mineFilter, ['all', 'completed', 'pending', 'progress', 'on_hold', 'overdue'], true)) array_pop($where);
     }
 
     $whereSql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
@@ -427,7 +427,7 @@ $portalLabel = 'User Portal';
 
         .user-cards {
             display: grid;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
+            grid-template-columns: repeat(6, minmax(0, 1fr));
             gap: 14px;
             margin-bottom: 20px
         }
@@ -496,6 +496,11 @@ $portalLabel = 'User Portal';
         .user-metric.red .ico {
             background: #ffe8e8;
             color: #dc2626
+        }
+
+        .user-metric.teal .ico {
+            background: #e2f7f5;
+            color: #0f766e
         }
 
         .user-task-panel {
@@ -733,24 +738,8 @@ $portalLabel = 'User Portal';
 
         .actions {
             display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 5px
-        }
-
-        /* Compact icon-only delete control keeps the Actions column tidy. */
-        .user-task-panel .delete-icon-btn {
-            width: 30px;
-            height: 30px;
-            flex: 0 0 30px;
-            display: inline-grid;
-            place-items: center;
-            padding: 0;
-            line-height: 1;
-        }
-
-        .user-task-panel .delete-icon-btn i {
-            font-size: 14px;
+            gap: 5px;
+            white-space: nowrap
         }
 
         .user-task-panel .btn-sm {
@@ -886,6 +875,10 @@ $portalLabel = 'User Portal';
                         <div class="ico"><i class="bi bi-gear"></i></div>
                         <div><strong><?= $counts['progress'] ?></strong><span>In Progress</span></div>
                     </button>
+                    <button class="user-metric teal" data-card="on_hold">
+                        <div class="ico"><i class="bi bi-pause-circle"></i></div>
+                        <div><strong><?= $counts['on_hold'] ?></strong><span>On Hold</span></div>
+                    </button>
                     <button class="user-metric red" data-card="overdue">
                         <div class="ico"><i class="bi bi-exclamation-triangle"></i></div>
                         <div><strong><?= $counts['overdue'] ?></strong><span>Overdue</span></div>
@@ -958,7 +951,7 @@ $portalLabel = 'User Portal';
                                                     <button class="btn btn-outline-secondary btn-sm" disabled title="This task is not available for acceptance or updating."><i class="bi bi-lock"></i> Unavailable</button>
                                                 <?php endif; ?>
                                                 <button class="btn btn-outline-secondary btn-sm reassign-btn" data-id="<?= $t['task_id'] ?>" data-title="<?= h($t['title'] ?: 'Task') ?>"><i class="bi bi-arrow-left-right"></i> Reassign</button>
-                                                <button type="button" class="btn btn-outline-danger btn-sm delete-btn delete-icon-btn" data-id="<?= $t['task_id'] ?>" data-title="<?= h($t['title'] ?: 'Untitled task') ?>" aria-label="Delete task" title="Delete task" <?= (!$mine && !in_array($role, ['mishead', 'admin', 'administrator'], true)) ? 'disabled title="Only the assigned MIS user or MIS Head/Admin can delete this task."' : '' ?>><i class="bi bi-trash" aria-hidden="true"></i></button>
+                                                <button type="button" class="btn btn-outline-danger btn-sm delete-btn" data-id="<?= $t['task_id'] ?>" data-title="<?= h($t['title'] ?: 'Untitled task') ?>" <?= (!$mine && !in_array($role, ['mishead', 'admin', 'administrator'], true)) ? 'disabled title="Only the assigned MIS user or MIS Head/Admin can delete this task."' : '' ?>><i class="bi bi-trash"></i> Delete</button>
                                             </div>
                                         </td>
                                     </tr><?php endforeach; ?>
