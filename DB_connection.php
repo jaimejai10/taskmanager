@@ -27,3 +27,7 @@ try {
     error_log("Database connection failed: " . $e->getMessage());
     exit("Unable to connect to the database. Please contact the administrator.");
 }
+
+// Run the daily MIS presence reset once per Manila calendar day.
+// The helper safely preserves On Leave and currently approved leave.
+require_once __DIR__ . '/biometric/presence_daily_reset.php';
