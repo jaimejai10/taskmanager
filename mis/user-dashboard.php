@@ -18,6 +18,10 @@ $conn->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
 $userId = (int)$_SESSION['user_id'];
 $userName = $_SESSION['full_name'] ?? $_SESSION['name'] ?? 'MIS User';
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+$csrfToken = $_SESSION['csrf_token'];
 
 function h($v)
 {
@@ -70,6 +74,7 @@ try {
         throw new RuntimeException('Cannot detect assignment/user columns. Expected tasks.assigned_to_id or assigned_id, plus users ID and name columns.');
     }
 
+    $role = '';
     if ($roleCol) {
         $roleCheck = $conn->prepare("SELECT `$roleCol` FROM users WHERE `$uidCol` = ?");
         $roleCheck->execute([$userId]);
@@ -198,6 +203,28 @@ try {
             reply(true, 'Task updated successfully.');
         }
 
+        if (($_POST['action'] ?? '') === 'delete_task') {
+            $submittedToken = (string)($_POST['csrf_token'] ?? '');
+            if (!hash_equals($csrfToken, $submittedToken)) {
+                reply(false, 'Security token expired. Refresh the page and try again.', 403);
+            }
+
+            // MIS Head/Admin may delete any task. MIS Users may delete only
+            // tasks currently assigned to their own account.
+            $canDeleteAny = in_array($role, ['mishead', 'admin', 'administrator'], true);
+            $isAssignedToMe = (int)$task['assigned_user_id'] === $userId;
+            if (!$canDeleteAny && !$isAssignedToMe) {
+                reply(false, 'You can delete only tasks assigned to you. Contact MIS Head/Admin to delete other tasks.', 403);
+            }
+
+            $delete = $conn->prepare('DELETE FROM tasks WHERE task_id = ?');
+            $delete->execute([$taskId]);
+            if ($delete->rowCount() !== 1) {
+                reply(false, 'The task could not be deleted. It may have already been removed.', 409);
+            }
+            reply(true, 'Task deleted successfully.');
+        }
+
         if (($_POST['action'] ?? '') === 'reassign_task') {
             $target = (int)($_POST['assigned_user_id'] ?? 0);
             if (!$target) reply(false, 'Choose an MIS user.', 422);
@@ -317,11 +344,31 @@ try {
     $currentPageNumber = max(1, min((int)($_GET['page'] ?? 1), $totalPages));
     $offset = ($currentPageNumber - 1) * $perPage;
 
-    // Task list: current user's tasks first, then unassigned, then other users' tasks.
-    $orderDue = $fields['due_date'] ? "CASE WHEN t.`{$fields['due_date']}` < NOW() AND LOWER(t.status) NOT IN ('complete','completed','cancelled') THEN 0 ELSE 1 END, t.`{$fields['due_date']}` ASC," : '';
+    // Task queue priority:
+    // 1 My Pending, 2 My In Progress, 3 My On Hold,
+    // 4 Other Pending, 5 Other In Progress, 6 Other On Hold,
+    // 7 My Complete, 8 Other Complete. Unlisted statuses follow afterward.
     $q = $conn->prepare($select . $from . $whereSql . "
-        ORDER BY CASE WHEN t.`$assignCol` = ? THEN 0 WHEN t.`$assignCol` IS NULL OR t.`$assignCol` = 0 THEN 1 ELSE 2 END,
-        $orderDue t.task_id DESC LIMIT $perPage OFFSET $offset");
+        ORDER BY CASE
+            WHEN t.`$assignCol` = ? THEN
+                CASE
+                    WHEN LOWER(TRIM(t.status)) = 'pending' THEN 0
+                    WHEN LOWER(TRIM(t.status)) IN ('in progress', 'in_progress') THEN 1
+                    WHEN LOWER(TRIM(t.status)) = 'on hold' THEN 2
+                    WHEN LOWER(TRIM(t.status)) IN ('complete', 'completed') THEN 6
+                    ELSE 8
+                END
+            ELSE
+                CASE
+                    WHEN LOWER(TRIM(t.status)) = 'pending' THEN 3
+                    WHEN LOWER(TRIM(t.status)) IN ('in progress', 'in_progress') THEN 4
+                    WHEN LOWER(TRIM(t.status)) = 'on hold' THEN 5
+                    WHEN LOWER(TRIM(t.status)) IN ('complete', 'completed') THEN 7
+                    ELSE 9
+                END
+        END,
+        t.task_id DESC
+        LIMIT $perPage OFFSET $offset");
     $q->execute(array_merge($filterParams, [$userId]));
     $tasks = $q->fetchAll();
 
@@ -686,8 +733,24 @@ $portalLabel = 'User Portal';
 
         .actions {
             display: flex;
-            gap: 5px;
-            white-space: nowrap
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 5px
+        }
+
+        /* Compact icon-only delete control keeps the Actions column tidy. */
+        .user-task-panel .delete-icon-btn {
+            width: 30px;
+            height: 30px;
+            flex: 0 0 30px;
+            display: inline-grid;
+            place-items: center;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .user-task-panel .delete-icon-btn i {
+            font-size: 14px;
         }
 
         .user-task-panel .btn-sm {
@@ -895,6 +958,7 @@ $portalLabel = 'User Portal';
                                                     <button class="btn btn-outline-secondary btn-sm" disabled title="This task is not available for acceptance or updating."><i class="bi bi-lock"></i> Unavailable</button>
                                                 <?php endif; ?>
                                                 <button class="btn btn-outline-secondary btn-sm reassign-btn" data-id="<?= $t['task_id'] ?>" data-title="<?= h($t['title'] ?: 'Task') ?>"><i class="bi bi-arrow-left-right"></i> Reassign</button>
+                                                <button type="button" class="btn btn-outline-danger btn-sm delete-btn delete-icon-btn" data-id="<?= $t['task_id'] ?>" data-title="<?= h($t['title'] ?: 'Untitled task') ?>" aria-label="Delete task" title="Delete task" <?= (!$mine && !in_array($role, ['mishead', 'admin', 'administrator'], true)) ? 'disabled title="Only the assigned MIS user or MIS Head/Admin can delete this task."' : '' ?>><i class="bi bi-trash" aria-hidden="true"></i></button>
                                             </div>
                                         </td>
                                     </tr><?php endforeach; ?>
@@ -984,6 +1048,26 @@ $portalLabel = 'User Portal';
             </div>
         </div>
     </div>
+    <div class="modal fade" id="deleteTaskModal" tabindex="-1" aria-labelledby="deleteTaskModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="deleteTaskModalLabel"><i class="bi bi-exclamation-triangle text-danger me-2"></i>Confirm Delete</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">Are you sure you want to permanently delete this task?</p>
+                    <div class="fw-semibold" id="deleteTaskTitle"></div>
+                    <p class="small text-danger mt-3 mb-0">This action cannot be undone. The task record will be removed from the database.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" id="confirmDeleteTask"><i class="bi bi-trash me-1"></i>Yes, Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="toast-container position-fixed bottom-0 end-0 p-3">
         <div id="toast" class="toast text-bg-dark">
             <div class="toast-body" id="toastText"></div>
@@ -996,6 +1080,8 @@ $portalLabel = 'User Portal';
             toast = new bootstrap.Toast('#toast');
 
         const attachmentModal = new bootstrap.Modal('#attachmentModal');
+        const deleteTaskModal = new bootstrap.Modal('#deleteTaskModal');
+        let selectedDeleteTaskId = null;
         document.querySelectorAll('.attachment-preview-btn').forEach(button => button.addEventListener('click', () => {
             const url = button.dataset.attachmentUrl;
             const name = button.dataset.attachmentName || 'Attachment';
@@ -1097,6 +1183,36 @@ $portalLabel = 'User Portal';
             document.getElementById('reassignTitle').textContent = 'Reassign: ' + b.dataset.title;
             reassignModal.show();
         }));
+        document.querySelectorAll('.delete-btn:not(:disabled)').forEach(button => button.addEventListener('click', () => {
+            selectedDeleteTaskId = button.dataset.id;
+            document.getElementById('deleteTaskTitle').textContent = button.dataset.title || 'Selected task';
+            deleteTaskModal.show();
+        }));
+
+        document.getElementById('confirmDeleteTask').addEventListener('click', async () => {
+            if (!selectedDeleteTaskId) return;
+            const confirmButton = document.getElementById('confirmDeleteTask');
+            confirmButton.disabled = true;
+            confirmButton.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Deleting...';
+            const fd = new FormData();
+            fd.append('action', 'delete_task');
+            fd.append('task_id', selectedDeleteTaskId);
+            fd.append('csrf_token', <?= json_encode($csrfToken) ?>);
+            try {
+                const response = await fetch(location.pathname + location.search, { method: 'POST', body: fd });
+                const result = await response.json();
+                if (!response.ok || !result.ok) throw new Error(result.message || 'Unable to delete task.');
+                deleteTaskModal.hide();
+                message(result.message);
+                setTimeout(() => location.reload(), 500);
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                confirmButton.disabled = false;
+                confirmButton.innerHTML = '<i class="bi bi-trash me-1"></i>Yes, Delete';
+            }
+        });
+
         document.querySelectorAll('.accept-btn').forEach(b => b.addEventListener('click', async () => {
             if (!confirm('Accept this task and change its status to In Progress?')) return;
             const fd = new FormData();
