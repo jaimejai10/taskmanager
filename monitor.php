@@ -17,6 +17,20 @@ if (!isset($conn) || !($conn instanceof PDO)) {
 $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $conn->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
+// Resolve the role from the database instead of trusting a client-side role label.
+$roleStmt = $conn->prepare('SELECT LOWER(TRIM(role)) FROM users WHERE user_id = ? LIMIT 1');
+$roleStmt->execute([(int)$_SESSION['user_id']]);
+$currentRole = (string)$roleStmt->fetchColumn();
+if ($currentRole === '') {
+    http_response_code(403);
+    exit('Access denied: user account not found.');
+}
+$canReviewLeave = ($currentRole === 'mishead');
+if (empty($_SESSION['monitor_leave_csrf'])) {
+    $_SESSION['monitor_leave_csrf'] = bin2hex(random_bytes(32));
+}
+$monitorLeaveCsrf = $_SESSION['monitor_leave_csrf'];
+
 function monitorPeriodStart(string $period): string
 {
     switch ($period) {
@@ -50,7 +64,7 @@ function monitorStatusClass(string $status): string
     return strtolower(monitorStatus($status));
 }
 
-function monitorFetch(PDO $conn, string $period): array
+function monitorFetch(PDO $conn, string $period, bool $canReviewLeave): array
 {
     $start = monitorPeriodStart($period);
 
@@ -101,17 +115,7 @@ function monitorFetch(PDO $conn, string $period): array
         FROM tasks t
         LEFT JOIN companies c ON c.comp_id = t.company_id
         LEFT JOIN users assigned_user ON assigned_user.user_id = t.assigned_id
-        ORDER BY
-            CASE
-                WHEN LOWER(TRIM(t.status)) = 'pending' THEN 1
-                WHEN LOWER(TRIM(t.status)) = 'in progress' THEN 2
-                WHEN LOWER(TRIM(t.status)) = 'overdue' THEN 3
-                WHEN LOWER(TRIM(t.status)) = 'on hold' THEN 4
-                WHEN LOWER(TRIM(t.status)) = 'completed' THEN 5
-                ELSE 6
-            END ASC,
-            t.created_at DESC,
-            t.task_id DESC
+        ORDER BY t.created_at DESC, t.task_id DESC
         LIMIT 10;
     ")->fetchAll();
 
@@ -150,26 +154,46 @@ function monitorFetch(PDO $conn, string $period): array
         LIMIT 3
     ")->fetchAll();
 
-    // IT Team Status: show only MIS staff and their position.
-        $team = $conn->query("
-            SELECT
-                user_id,
-                full_name,
-                position,
-                presence_status,
-                updated_at
-            FROM users
-            WHERE role IN ('MISHead', 'MISUser')
-            ORDER BY
-                CASE COALESCE(presence_status, 'Available')
+    // IT Team Status: approved leave takes priority only during the actual leave dates.
+    // This is calculated at display time; users.presence_status is not overwritten,
+    // so the employee automatically returns to their normal status after leave ends.
+    $team = $conn->query("
+        SELECT
+            u.user_id,
+            u.full_name,
+            u.position,
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM leave_requests lr
+                    WHERE lr.user_id = u.user_id
+                      AND LOWER(TRIM(lr.status)) = 'approved'
+                      AND CURDATE() BETWEEN lr.start_date AND lr.end_date
+                ) THEN 'On Leave'
+                ELSE COALESCE(u.presence_status, 'Available')
+            END AS presence_status,
+            u.updated_at
+        FROM users u
+        WHERE LOWER(TRIM(u.role)) IN ('mishead', 'misuser')
+        ORDER BY
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM leave_requests lr
+                    WHERE lr.user_id = u.user_id
+                      AND LOWER(TRIM(lr.status)) = 'approved'
+                      AND CURDATE() BETWEEN lr.start_date AND lr.end_date
+                ) THEN 4
+                ELSE CASE COALESCE(u.presence_status, 'Available')
                     WHEN 'Available' THEN 1
                     WHEN 'Busy' THEN 2
                     WHEN 'Away' THEN 3
                     ELSE 4
-                END,
-                full_name ASC
-            LIMIT 3
-        ")->fetchAll();
+                END
+            END,
+            u.full_name ASC
+        LIMIT 3
+    ")->fetchAll();
 
     // Leave panel: pending requests plus upcoming approved leave.
     $leave = [];
@@ -187,13 +211,15 @@ function monitorFetch(PDO $conn, string $period): array
                 lr.status,
                 u.full_name
             FROM leave_requests lr
-            LEFT JOIN users u ON u.user_id = lr.user_id
-            WHERE
-                LOWER(lr.status) = 'pending'
-                OR (
-                    LOWER(lr.status) = 'approved'
-                    AND lr.end_date >= CURDATE()
-                )
+            INNER JOIN users u ON u.user_id = lr.user_id
+            WHERE LOWER(TRIM(u.role)) = 'misuser'
+              AND (
+                    LOWER(lr.status) = 'pending'
+                    OR (
+                        LOWER(lr.status) = 'approved'
+                        AND lr.end_date >= CURDATE()
+                    )
+              )
             ORDER BY
                 CASE WHEN LOWER(lr.status) = 'pending'
                      THEN 0 ELSE 1 END,
@@ -236,7 +262,7 @@ if (isset($_GET['ajax'])) {
         }
 
         echo json_encode(
-            monitorFetch($conn, $period),
+            monitorFetch($conn, $period, $canReviewLeave),
             JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
         );
     } catch (Throwable $e) {
@@ -279,6 +305,13 @@ if (isset($_GET['ajax'])) {
 .priority-low { background: rgba(34, 197, 94, .18); color: #4ade80; }
 .age-value { white-space: nowrap; font-weight: 600; }
 
+
+.leave-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.leave-action{border:0;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer}
+.leave-action:disabled{opacity:.55;cursor:wait}
+.leave-action.approve{background:#dcfce7;color:#166534}
+.leave-action.reject{background:#fee2e2;color:#991b1b}
+.leave-row{align-items:flex-start}
 </style>
 </head>
 <body>
@@ -400,7 +433,7 @@ if (isset($_GET['ajax'])) {
 </section>
 
 <footer>
-    <span>MONITORING MODE · READ ONLY</span>
+    <span>LIVE MONITORING · LEAVE REVIEW RESTRICTED TO MIS HEAD</span>
     <span id="lastUpdated">Connecting to database...</span>
 </footer>
 </div>
@@ -416,6 +449,9 @@ if (isset($_GET['ajax'])) {
 <button id="soundToggle" class="sound" type="button">🔊 Sound On · activate</button>
 
 <script>
+const canReviewLeave = <?= $canReviewLeave ? 'true' : 'false' ?>;
+const leaveReviewCsrf = <?= json_encode($monitorLeaveCsrf, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
+
 "use strict";
 
 const $ = id => document.getElementById(id);
@@ -425,12 +461,25 @@ const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({
 
 let firstLoad = true;
 let knownTaskIds = new Set();
-let soundEnabled = true; // Default preference is ON; browser audio unlocks after first interaction.
+let soundEnabled = localStorage.getItem("misMonitorSoundEnabled") !== "false";
 let soundUnlocked = false;
-const notificationAudio = new Audio("sounds/notification.mp3");
+const notificationAudio = new Audio(new URL("sounds/notification.mp3", document.baseURI).href);
 notificationAudio.preload = "auto";
 let popupTimeout = null;
 let countdownInterval = null;
+
+function updateSoundButton() {
+    const button = $("soundToggle");
+    if (!button) return;
+
+    if (!soundEnabled) {
+        button.textContent = "🔇 Sound Off";
+        button.setAttribute("aria-pressed", "false");
+    } else {
+        button.textContent = soundUnlocked ? "🔊 Sound On" : "🔊 Sound On · click to enable";
+        button.setAttribute("aria-pressed", "true");
+    }
+}
 
 function updateClock() {
     const now = new Date();
@@ -449,10 +498,13 @@ $("themeToggle").addEventListener("click", () => {
 });
 
 async function unlockNotificationSound() {
-    if (soundUnlocked) return true;
+    if (soundUnlocked) {
+        updateSoundButton();
+        return true;
+    }
 
     try {
-        // Most browsers block audible autoplay until a user gesture.
+        // A user gesture is required by browsers before notification audio can play.
         notificationAudio.muted = true;
         notificationAudio.currentTime = 0;
         await notificationAudio.play();
@@ -460,50 +512,73 @@ async function unlockNotificationSound() {
         notificationAudio.currentTime = 0;
         notificationAudio.muted = false;
         soundUnlocked = true;
-        soundEnabled = true;
-        $("soundToggle").textContent = "🔊 Sound On";
+        updateSoundButton();
         return true;
     } catch (error) {
         notificationAudio.muted = false;
-        soundEnabled = true;
-        $("soundToggle").textContent = "🔊 Sound On · activate";
+        updateSoundButton();
+        console.warn("Notification sound is not unlocked yet:", error);
         return false;
     }
 }
 
+function saveSoundPreference() {
+    try {
+        localStorage.setItem("misMonitorSoundEnabled", soundEnabled ? "true" : "false");
+    } catch (error) {
+        console.warn("Unable to save sound preference:", error);
+    }
+}
+
 function toggleSound() {
-    if (soundEnabled && soundUnlocked) {
-        soundEnabled = false;
-        notificationAudio.pause();
-        notificationAudio.currentTime = 0;
-        $("soundToggle").textContent = "🔇 Sound Off";
+    // If this is the first click on the sound control, use it to activate audio
+    // instead of immediately turning the default ON state OFF.
+    if (!soundUnlocked) {
+        soundEnabled = true;
+        saveSoundPreference();
+        unlockNotificationSound();
         return;
     }
 
-    soundEnabled = true;
-    unlockNotificationSound();
+    soundEnabled = !soundEnabled;
+    saveSoundPreference();
+    updateSoundButton();
+
+    if (!soundEnabled) {
+        notificationAudio.pause();
+        notificationAudio.currentTime = 0;
+    }
 }
 
-// Unlock sound on the first click/tap/key press anywhere on the page.
-const firstInteractionUnlock = () => {
+// Unlock audio on the first interaction anywhere except the sound button itself.
+// The sound button has its own handler so its first click cannot accidentally mute audio.
+function firstInteractionUnlock(event) {
+    if (event.target && event.target.closest && event.target.closest("#soundToggle")) return;
     if (!soundUnlocked) unlockNotificationSound();
-};
+}
 document.addEventListener("pointerdown", firstInteractionUnlock, { once: true });
 document.addEventListener("keydown", firstInteractionUnlock, { once: true });
 
 function playSound() {
     if (!soundEnabled) return;
+
     try {
         notificationAudio.pause();
         notificationAudio.currentTime = 0;
         notificationAudio.play().catch(error => {
-            console.error("Notification sound playback failed:", error);
+            console.warn("Notification sound playback failed. Click Sound On to activate it:", error);
+            soundUnlocked = false;
+            updateSoundButton();
         });
     } catch (error) {
-        console.error("Notification sound playback failed:", error);
+        console.warn("Notification sound playback failed:", error);
+        soundUnlocked = false;
+        updateSoundButton();
     }
 }
+
 $("soundToggle").addEventListener("click", toggleSound);
+updateSoundButton();
 
 function hidePopup() {
     $("requestPopup").classList.remove("show");
@@ -612,8 +687,10 @@ function renderTeam(items) {
         return;
     }
     $("teamItems").innerHTML = items.map(u => {
-        const state = String(u.presence_status || "Available").toLowerCase();
-        const cls = ["available", "busy", "away"].includes(state) ? state : "available";
+        const state = String(u.presence_status || "Available").trim().toLowerCase();
+        const cls = state === "on leave"
+            ? "status-on-leave"
+            : (["available", "busy", "away"].includes(state) ? state : "available");
         return `<div class="data-row">
             <div class="row-main">
                 <strong>${esc(u.full_name || "MIS User")}</strong>
@@ -631,19 +708,79 @@ function renderLeave(items, error) {
         return;
     }
     if (!items.length) {
-        $("leaveItems").innerHTML = '<div class="empty">No pending or upcoming leave.</div>';
+        $("leaveItems").innerHTML = '<div class="empty">No pending or upcoming approved leave.</div>';
         return;
     }
-    $("leaveItems").innerHTML = items.map(l => `
-        <div class="data-row">
+
+    $("leaveItems").innerHTML = items.map(l => {
+        const pending = String(l.status).toLowerCase() === "pending";
+        const dates = `${esc(formatShortDate(l.start_date))}${l.end_date && l.end_date !== l.start_date ? " – " + esc(formatShortDate(l.end_date)) : ""}`;
+        return `<div class="data-row leave-row">
             <div class="row-main">
                 <strong>${esc(l.full_name || "Unknown employee")} · ${esc(l.leave_type)}</strong>
-                <div class="row-meta">${esc(l.start_date)}${l.end_date && l.end_date !== l.start_date ? " – " + esc(l.end_date) : ""}</div>
+                <div class="row-meta">${dates}</div>
+                <div class="row-meta">Reason: ${esc(l.reason || "Not provided")}</div>
+                ${canReviewLeave && pending ? `
+                    <div class="leave-actions">
+                        <button type="button" class="leave-action approve" data-leave-action="approve" data-leave-id="${Number(l.leave_id)}">Approve</button>
+                        <button type="button" class="leave-action reject" data-leave-action="reject" data-leave-id="${Number(l.leave_id)}">Reject</button>
+                    </div>` : ""}
             </div>
-            <span class="badge ${String(l.status).toLowerCase() === "approved" ? "completed" : "pending"}">${esc(l.status)}</span>
-        </div>
-    `).join("");
+            <span class="badge ${String(l.status).toLowerCase() === "approved" ? "completed" : String(l.status).toLowerCase() === "rejected" ? "cancelled" : "pending"}">${esc(l.status)}</span>
+        </div>`;
+    }).join("");
 }
+
+async function reviewLeave(leaveId, action) {
+    if (!canReviewLeave) {
+        alert("Only the MIS Head can approve or reject leave requests.");
+        return;
+    }
+
+    let remarks = "";
+    if (action === "reject") {
+        remarks = window.prompt("Enter the reason for rejecting this leave request:");
+        if (remarks === null) return;
+        remarks = remarks.trim();
+        if (!remarks) {
+            alert("Please provide a rejection reason.");
+            return;
+        }
+    } else {
+        remarks = window.prompt("Optional approval remarks:", "") ?? "";
+    }
+
+    const buttons = document.querySelectorAll(`[data-leave-id="${leaveId}"]`);
+    buttons.forEach(button => button.disabled = true);
+
+    try {
+        const response = await fetch("action/review_leave.php", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                leave_id: leaveId,
+                action,
+                remarks,
+                csrf: leaveReviewCsrf
+            })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.success) {
+            throw new Error(result.message || "Unable to update leave request.");
+        }
+        alert(result.message);
+        await refreshDashboard();
+    } catch (error) {
+        alert(error.message || "Unable to update leave request.");
+        buttons.forEach(button => button.disabled = false);
+    }
+}
+
+$("leaveItems").addEventListener("click", event => {
+    const button = event.target.closest("[data-leave-action]");
+    if (!button) return;
+    reviewLeave(Number(button.dataset.leaveId), button.dataset.leaveAction);
+});
 
 function renderAttention(items) {
     $("attentionCount").textContent = items.length;

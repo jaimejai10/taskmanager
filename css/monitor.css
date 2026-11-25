@@ -330,3 +330,8 @@ input[type="datetime-local"],
     .metric-card .number { font-size: 27px; }
     .metric-card .label { font-size: 11px; }
 }
+
+.status-on-leave {
+    color: #f1c40f !important;
+    font-weight: 700;
+}
