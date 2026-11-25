@@ -93,6 +93,7 @@ try {
         'created_at' => pick($tc, ['created_at', 'date_requested', 'request_date']),
         'due_date' => pick($tc, ['due_date']),
         'requested_by' => pick($tc, ['requested_by']),
+        'requester_no' => pick($tc, ['requester_no']),
         'diagnosis' => pick($tc, ['diagnosis']),
         'action_taken' => pick($tc, ['action_taken']),
         'recommendation' => pick($tc, ['recommendation']),
@@ -233,8 +234,97 @@ try {
             $check = $conn->prepare($sql);
             $check->execute([$target]);
             if (!$check->fetchColumn()) reply(false, 'Selected account is not an MIS user.', 422);
-            $up = $conn->prepare("UPDATE tasks SET `$assignCol` = ? WHERE task_id = ?");
-            $up->execute([$target, $taskId]);
+            $oldAssignedId = (int)($task['assigned_user_id'] ?? 0);
+
+            // Reassigning to the same technician is not a transfer.
+            if ($oldAssignedId === $target) {
+                reply(true, 'This task is already assigned to the selected MIS user. No changes were made.');
+            }
+
+            // Get requester contact and technician names before updating assignment.
+            $detailSelect = [];
+            $detailSelect[] = $fields['report_id']
+                ? "t.`{$fields['report_id']}` AS report_no"
+                : "t.task_id AS report_no";
+            $detailSelect[] = $fields['title']
+                ? "t.`{$fields['title']}` AS task_title"
+                : "'' AS task_title";
+            $detailSelect[] = $fields['requester_no']
+                ? "t.`{$fields['requester_no']}` AS requester_no"
+                : "NULL AS requester_no";
+            $detailSelect[] = "old_u.`$unameCol` AS previous_assigned_name";
+            $detailSelect[] = "new_u.`$unameCol` AS new_assigned_name";
+
+            $detailSql = "SELECT " . implode(', ', $detailSelect) . "
+                FROM tasks t
+                LEFT JOIN users old_u ON old_u.`$uidCol` = t.`$assignCol`
+                LEFT JOIN users new_u ON new_u.`$uidCol` = ?
+                WHERE t.task_id = ?";
+            $detailQuery = $conn->prepare($detailSql);
+            $detailQuery->execute([$target, $taskId]);
+            $taskDetails = $detailQuery->fetch();
+
+            // Update only if the assignment has not changed since it was read.
+            // This prevents a stale reassignment request from overwriting a newer one.
+            if ($task['assigned_user_id'] === null) {
+                $up = $conn->prepare(
+                    "UPDATE tasks SET `$assignCol` = ? WHERE task_id = ? AND `$assignCol` IS NULL"
+                );
+                $up->execute([$target, $taskId]);
+            } else {
+                $up = $conn->prepare(
+                    "UPDATE tasks SET `$assignCol` = ? WHERE task_id = ? AND `$assignCol` = ?"
+                );
+                $up->execute([$target, $taskId, $task['assigned_user_id']]);
+            }
+
+            if ($up->rowCount() !== 1) {
+                reply(false, 'The task assignment changed before it could be saved. Refresh the dashboard and try again.', 409);
+            }
+
+            // Notify the requester only after a confirmed transfer.
+            // Accepting a task intentionally has no SMS notification.
+            // SMS uses requester_no only; company mobile numbers are never used as fallback.
+            $requesterNumber = trim((string)($taskDetails['requester_no'] ?? ''));
+            if ($requesterNumber !== '') {
+                try {
+                    require_once __DIR__ . '/../includes/sms.php';
+
+                    if (function_exists('send_sms')) {
+                        $phone = preg_replace('/[^0-9+]/', '', $requesterNumber);
+
+                        if (str_starts_with($phone, '+63')) {
+                            $phone = '63' . substr($phone, 3);
+                        } elseif (str_starts_with($phone, '09')) {
+                            $phone = '63' . substr($phone, 1);
+                        } elseif (str_starts_with($phone, '9') && strlen($phone) === 10) {
+                            $phone = '63' . $phone;
+                        }
+
+                        if (preg_match('/^639[0-9]{9}$/', $phone)) {
+                            $message = "MIS TASK REASSIGNMENT\n"
+                                . "Your MIS Service Request has been reassigned.\n"
+                                . "Report No.: " . ($taskDetails['report_no'] ?? $taskId) . "\n"
+                                . "Task: " . ($taskDetails['task_title'] ?? 'MIS Service Request') . "\n"
+                                . "Previous Assigned: " . ($taskDetails['previous_assigned_name'] ?: 'MIS Team') . "\n"
+                                . "New Assigned: " . ($taskDetails['new_assigned_name'] ?: 'MIS Team') . "\n"
+                                . "Our MIS team will continue working on your request. Thank you.";
+
+                            if (send_sms($phone, $message) === false) {
+                                error_log("MIS reassignment SMS failed for task ID {$taskId}.");
+                            }
+                        } else {
+                            error_log("MIS reassignment SMS skipped: invalid requester_no for task ID {$taskId}.");
+                        }
+                    } else {
+                        error_log('MIS reassignment SMS skipped: send_sms() function is unavailable.');
+                    }
+                } catch (Throwable $smsError) {
+                    // A notification failure must never undo the saved reassignment.
+                    error_log('MIS reassignment SMS error: ' . $smsError->getMessage());
+                }
+            }
+
             reply(true, 'Task reassigned successfully.');
         }
         reply(false, 'Unknown action.', 400);
@@ -796,6 +886,22 @@ $portalLabel = 'User Portal';
             border-color: #dce4ee
         }
 
+        /* Polished task-update modal */
+        #updateModal .modal-dialog { max-width: 820px; }
+        #updateModal .modal-content, #takeTaskModal .modal-content { border: 0; border-radius: 18px; overflow: hidden; box-shadow: 0 18px 55px #0f172a24; }
+        #updateModal .modal-header, #takeTaskModal .modal-header { padding: 20px 24px; }
+        #updateModal .modal-body { padding: 24px; }
+        #updateModal .modal-footer { padding: 16px 24px; background: #f8fafc; border-top: 1px solid #e8edf4; }
+        #updateModal .task-meta-card { padding: 15px 17px; border: 1px solid #e5eaf2; background: #f8fafc; border-radius: 12px; height: 100%; }
+        #updateModal .task-meta-label { display:block; color:#64748b; font-size:10px; font-weight:800; letter-spacing:.07em; margin-bottom:5px; }
+        #updateModal .form-label { margin-bottom:7px; }
+        #updateModal .form-control, #updateModal .form-select { border-radius:10px; padding:11px 12px; }
+        #updateModal textarea.form-control { min-height:105px; resize:vertical; }
+        #updateModal .update-section-title { font-size:12px; font-weight:800; color:#334155; text-transform:uppercase; letter-spacing:.06em; margin:3px 0 12px; }
+        #takeTaskModal .modal-body { padding:24px; }
+        #takeTaskModal .take-task-warning { display:flex; gap:13px; padding:15px; border:1px solid #fde3b2; background:#fff8e8; border-radius:12px; }
+        #takeTaskModal .take-task-warning .bi { font-size:22px; color:#d97706; }
+
         @media(max-width:1250px) {
             .user-cards {
                 grid-template-columns: repeat(3, minmax(0, 1fr))
@@ -944,7 +1050,7 @@ $portalLabel = 'User Portal';
                                         <td>
                                             <div class="actions">
                                                 <?php if (strtolower(trim($t['status'])) === 'pending'): ?>
-                                                    <button class="btn btn-success btn-sm accept-btn" data-id="<?= $t['task_id'] ?>" data-title="<?= h($t['title'] ?: 'Task') ?>"><i class="bi bi-check2-circle"></i> Accept Task</button>
+                                                    <button type="button" class="btn btn-success btn-sm accept-btn" data-id="<?= $t['task_id'] ?>" data-title="<?= h($t['title'] ?: 'Task') ?>" data-assigned-user="<?= (int)$t['assigned_user_id'] ?>" data-assigned-name="<?= h($t['assigned_name'] ?: 'Unassigned') ?>"><i class="bi bi-check2-circle"></i> Accept Task</button>
                                                 <?php elseif ($mine && in_array(strtolower(trim($t['status'])), ['in progress', 'incomplete', 'on hold'], true)): ?>
                                                     <button class="btn btn-primary btn-sm update-btn" data-task="<?= h(json_encode($t, JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG)) ?>"><i class="bi bi-pencil-square"></i> Update</button>
                                                 <?php else: ?>
@@ -1041,6 +1147,24 @@ $portalLabel = 'User Portal';
             </div>
         </div>
     </div>
+    <div class="modal fade" id="takeTaskModal" tabindex="-1" aria-labelledby="takeTaskModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div><h5 class="modal-title" id="takeTaskModalLabel"><i class="bi bi-person-plus me-2"></i>Take Over This Task?</h5><small class="text-white-50">Task assignment confirmation</small></div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="take-task-warning mb-3"><i class="bi bi-exclamation-triangle-fill"></i><div><strong>This task is assigned to another MIS user.</strong><div class="small text-secondary mt-1">If you continue, the task will be reassigned to you and its status will change to In Progress.</div></div></div>
+                    <div class="small text-secondary mb-1">TASK</div><div class="fw-bold mb-3" id="takeTaskTitle"></div>
+                    <div class="small text-secondary mb-1">CURRENTLY ASSIGNED TO</div><div class="fw-semibold" id="takeTaskOwner"></div>
+                    <p class="small text-secondary mt-3 mb-0">Do you want to take responsibility for this task?</p>
+                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">No, Keep Assigned</button><button type="button" class="btn btn-success" id="confirmTakeTask"><i class="bi bi-check2-circle me-1"></i>Yes, Take Task</button></div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="deleteTaskModal" tabindex="-1" aria-labelledby="deleteTaskModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -1074,6 +1198,8 @@ $portalLabel = 'User Portal';
 
         const attachmentModal = new bootstrap.Modal('#attachmentModal');
         const deleteTaskModal = new bootstrap.Modal('#deleteTaskModal');
+        const takeTaskModal = new bootstrap.Modal('#takeTaskModal');
+        let pendingAcceptButton = null;
         let selectedDeleteTaskId = null;
         document.querySelectorAll('.attachment-preview-btn').forEach(button => button.addEventListener('click', () => {
             const url = button.dataset.attachmentUrl;
@@ -1206,26 +1332,48 @@ $portalLabel = 'User Portal';
             }
         });
 
-        document.querySelectorAll('.accept-btn').forEach(b => b.addEventListener('click', async () => {
-            if (!confirm('Accept this task and change its status to In Progress?')) return;
+        async function submitTaskAcceptance(button) {
+            if (!button) return;
+            button.disabled = true;
             const fd = new FormData();
             fd.append('action', 'accept_task');
-            fd.append('task_id', b.dataset.id);
+            fd.append('task_id', button.dataset.id);
             try {
-                const r = await fetch(location.pathname, {
-                    method: 'POST',
-                    body: fd
-                });
+                const r = await fetch(location.pathname + location.search, { method: 'POST', body: fd });
                 const j = await r.json();
                 if (!r.ok || !j.ok) throw Error(j.message || 'Unable to accept task.');
+                takeTaskModal.hide();
                 message(j.message);
                 setTimeout(() => {
-                    location.href = location.pathname + '?accepted_task=' + encodeURIComponent(b.dataset.id);
-                }, 400);
+                    location.href = location.pathname + '?accepted_task=' + encodeURIComponent(button.dataset.id);
+                }, 450);
             } catch (x) {
                 alert(x.message);
+                button.disabled = false;
             }
+        }
+
+        document.querySelectorAll('.accept-btn').forEach(button => button.addEventListener('click', () => {
+            const assignedUserId = Number(button.dataset.assignedUser || 0);
+            const assignedName = button.dataset.assignedName || 'another MIS user';
+            // Ask for explicit confirmation only when taking a task assigned to someone else.
+            if (assignedUserId > 0 && assignedUserId !== <?= (int)$userId ?>) {
+                pendingAcceptButton = button;
+                document.getElementById('takeTaskTitle').textContent = button.dataset.title || 'Selected task';
+                document.getElementById('takeTaskOwner').textContent = assignedName;
+                takeTaskModal.show();
+                return;
+            }
+            submitTaskAcceptance(button);
         }));
+
+        document.getElementById('confirmTakeTask').addEventListener('click', () => {
+            if (!pendingAcceptButton) return;
+            const button = pendingAcceptButton;
+            pendingAcceptButton = null;
+            submitTaskAcceptance(button);
+        });
+
         async function send(form) {
             const r = await fetch(location.pathname, {
                 method: 'POST',
