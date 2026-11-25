@@ -4,7 +4,7 @@
 $sName = "localhost";
 $uName = "root";
 $pass = "";
-$db_name = "task_management_db";
+$db_name = "moc_mis_db";
 
 try {
     $conn = new PDO(

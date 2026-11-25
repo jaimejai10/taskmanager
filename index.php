@@ -115,7 +115,7 @@ $users = get_all_users($conn);
                     </select><div class="hint">Select your affiliated company only.</div>
                 </div>
                 <div class="field"><label for="requested_by">Requested By <span class="required">*</span></label><input type="text" name="requested_by" id="requested_by" placeholder="Your full name" maxlength="100" required></div>
-                <div class="field"><label for="requester_no">Mobile Number <span class="required">*</span></label><input type="tel" name="requester_no" id="requester_no" placeholder="09XXXXXXXXX" inputmode="numeric" pattern="09[0-9]{9}" maxlength="11" required><div class="hint">Enter your 11-digit Philippine mobile number.</div></div>
+                <div class="field"><label for="requester_no">Mobile Number <span class="optional">(Optional)</span></label><input type="tel" name="requester_no" id="requester_no" placeholder="09XXXXXXXXX" inputmode="numeric" pattern="09[0-9]{9}" maxlength="11"><div class="hint">If you want to receive SMS notifications and updates about your request, please enter your 11-digit Philippine mobile number.</div></div>
             </div>
         </section>
 

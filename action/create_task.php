@@ -196,7 +196,6 @@ if (
     $description === '' ||
     $requested_by === '' ||
     mb_strlen($requested_by) > 150 ||
-    $requester_no === '' ||
     mb_strlen($requester_no) > 30 ||
     $company_id === false ||
     $company_id === null ||
@@ -209,7 +208,8 @@ if (
 // 9. VALIDATE PHILIPPINE MOBILE NUMBER
 // ========================================
 
-if (!preg_match('/^(09\d{9}|\+639\d{9})$/', $requester_no)) {
+// Mobile number is optional. Validate its format only when provided.
+if ($requester_no !== '' && !preg_match('/^(09\d{9}|\+639\d{9})$/', $requester_no)) {
     fail_request("Please enter a valid Philippine mobile number.");
 }
 
@@ -320,7 +320,7 @@ try {
         // and exclude technicians on approved leave.
 
         $stmt = $conn->query(
-            "SELECT user_id
+            "SELECT user_id, full_name
              FROM users
              ORDER BY RAND()
              LIMIT 1"
@@ -333,6 +333,7 @@ try {
         }
 
         $assigned_to_id = (int) $technician['user_id'];
+        $assignedStaffName = $technician['full_name'];
 
     } else {
 
@@ -349,17 +350,20 @@ try {
         }
 
         $stmt = $conn->prepare(
-            "SELECT user_id
+            "SELECT user_id, full_name
              FROM users
              WHERE user_id = ?
              LIMIT 1"
         );
 
         $stmt->execute([$assigned_to_id]);
+        $technician = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
+        if (!$technician) {
             fail_request("The selected assignee does not exist.");
         }
+
+        $assignedStaffName = $technician['full_name'];
     }
 
     // ------------------------------------
@@ -481,6 +485,32 @@ try {
     // ------------------------------------
 
     $conn->commit();
+
+    // ------------------------------------
+    // SEND SMS NOTIFICATION TO REQUESTER
+    // SMS is optional and must never affect
+    // the successful task submission.
+    // ------------------------------------
+
+    if ($requester_no !== '') {
+        try {
+            require_once dirname(__DIR__) . '/includes/sms.php';
+
+            $smsMessage = "Your MIS request has been received successfully. "
+                        . "Service Report No: " . $report_id . ". "
+                        . "Assigned Staff: " . $assignedStaffName . ". "
+                        . "Thank you.";
+
+            send_sms($requester_no, $smsMessage);
+
+        } catch (Throwable $smsError) {
+            // Log SMS problems without undoing the saved task.
+            error_log(
+                "MIS requester SMS failed for Report ID "
+                . $report_id . ": " . $smsError->getMessage()
+            );
+        }
+    }
 
     // ------------------------------------
     // SUCCESS MESSAGE FOR INDEX.PHP
