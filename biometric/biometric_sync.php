@@ -2,14 +2,12 @@
 <?php
 // ======================================================
 // MIS HELPDESK - ZKTECO K30 BIOMETRIC SYNCHRONIZATION
+// ALL EMPLOYEES
 // ======================================================
 
 date_default_timezone_set('Asia/Manila');
 
-// Existing MIS database connection
 require_once __DIR__ . '/../DB_connection.php';
-
-// ZKTeco library
 require_once __DIR__ . '/vendor/autoload.php';
 
 use TahaRafi\ZKTeco\ZKTeco;
@@ -22,44 +20,63 @@ $deviceIp   = '150.150.150.150';
 $devicePort = 4370;
 $commKey    = 11126;
 
-// Initial testing: Employee 1091 only
-$employeeNo = '1091';
-
 $zk = null;
+
+// ======================================================
+// 2. PUNCH TYPE MAPPING
+// ======================================================
+
+$punchTypes = [
+    0 => 'Check In',
+    1 => 'Check Out',
+    2 => 'Break Out',
+    3 => 'Break In'
+];
+
+// ======================================================
+// 3. PRESENCE STATUS MAPPING
+// ======================================================
+
+$presenceStatuses = [
+    0 => 'Available', // Check In
+    1 => 'Away',      // Check Out
+    2 => 'Away',      // Break Out
+    3 => 'Available'  // Break In
+];
 
 try {
 
     // ==================================================
-    // 2. FIND EMPLOYEE
+    // 4. GET ALL MIS EMPLOYEES
     // ==================================================
 
-    $stmt = $conn->prepare("
+    $stmt = $conn->query("
         SELECT
             user_id,
             employee_no,
-            biometric_id,
             presence_status
         FROM users
-        WHERE employee_no = :employee_no
-        LIMIT 1
+        WHERE employee_no IS NOT NULL
     ");
 
-    $stmt->execute([
-        ':employee_no' => $employeeNo
-    ]);
+    $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $employee = $stmt->fetch(PDO::FETCH_ASSOC);
+    // Map employee number to MIS user
+    $employeeMap = [];
 
-    if (!$employee) {
-        throw new Exception(
-            "Employee number $employeeNo was not found."
-        );
+    foreach ($employees as $employee) {
+
+        $employeeNo = trim((string)$employee['employee_no']);
+
+        if ($employeeNo === '') {
+            continue;
+        }
+
+        $employeeMap[$employeeNo] = $employee;
     }
 
-    $userId = $employee['user_id'];
-
     // ==================================================
-    // 3. CONNECT TO ZKTECO K30
+    // 5. CONNECT TO ZKTECO DEVICE
     // ==================================================
 
     $zk = new ZKTeco(
@@ -74,7 +91,7 @@ try {
         );
     }
 
-    // Retrieve attendance records
+    // Retrieve all attendance records
     $attendance = $zk->getAttendance();
 
     $zk->disconnect();
@@ -82,15 +99,17 @@ try {
 
     if (!is_array($attendance)) {
         throw new Exception(
-            "Unable to retrieve attendance records."
+            "Unable to retrieve biometric attendance records."
         );
     }
 
     // ==================================================
-    // 4. FILTER EMPLOYEE ATTENDANCE
+    // 6. MATCH BIOMETRIC RECORDS TO MIS EMPLOYEES
     // ==================================================
 
-    $employeeRecords = [];
+    $matchedRecords = [];
+    $unmatchedRecords = 0;
+    $invalidRecords = 0;
 
     foreach ($attendance as $record) {
 
@@ -101,39 +120,48 @@ try {
                 $record[3]
             )
         ) {
+            $invalidRecords++;
             continue;
         }
 
-        // Match K30 AC-No. with MIS employee_no
-        if ((string)$record[1] !== $employeeNo) {
+        $employeeNo = trim((string)$record[1]);
+
+        // Match biometric AC-No. with users.employee_no
+        if (!isset($employeeMap[$employeeNo])) {
+            $unmatchedRecords++;
             continue;
         }
 
         $state = (int)$record[2];
 
-        // Accept only verified attendance states
-        if (!in_array($state, [0, 1, 2, 3], true)) {
+        // Accept only verified punch states
+        if (!isset($punchTypes[$state])) {
+            $invalidRecords++;
             continue;
         }
 
-        $recordTimestamp = strtotime($record[3]);
+        $timestamp = strtotime($record[3]);
 
-        if ($recordTimestamp === false) {
+        if ($timestamp === false) {
+            $invalidRecords++;
             continue;
         }
 
-        $employeeRecords[] = [
+        $matchedRecords[] = [
+            'user_id' => $employeeMap[$employeeNo]['user_id'],
+            'employee_no' => $employeeNo,
             'state' => $state,
+            'punch_type' => $punchTypes[$state],
             'punch_time' => date(
                 'Y-m-d H:i:s',
-                $recordTimestamp
+                $timestamp
             )
         ];
     }
 
-    // Sort records oldest to newest
+    // Sort oldest to newest
     usort(
-        $employeeRecords,
+        $matchedRecords,
         function ($a, $b) {
             return strcmp(
                 $a['punch_time'],
@@ -143,37 +171,17 @@ try {
     );
 
     // ==================================================
-    // 5. CORRECT PUNCH TYPE MAPPING
-    // ==================================================
-
-    $punchTypes = [
-        0 => 'Check In',
-        1 => 'Check Out',
-        2 => 'Break Out',
-        3 => 'Break In'
-    ];
-
-    // ==================================================
-    // 6. PRESENCE STATUS MAPPING
-    // ==================================================
-
-    $presenceStatuses = [
-        0 => 'Available', // Check In
-        1 => 'Away',      // Check Out
-        2 => 'Away',      // Break Out
-        3 => 'Available'  // Break In
-    ];
-
-    // ==================================================
-    // 7. INSERT ATTENDANCE LOGS
+    // 7. PREPARE DATABASE OPERATIONS
     // ==================================================
 
     $inserted = 0;
     $duplicates = 0;
+    $updatedEmployees = 0;
+    $protectedEmployees = 0;
 
     $conn->beginTransaction();
 
-    // Check for duplicate attendance records
+    // Check duplicate attendance records
     $checkDuplicate = $conn->prepare("
         SELECT id
         FROM attendance_logs
@@ -184,7 +192,7 @@ try {
         LIMIT 1
     ");
 
-    // Insert new attendance record
+    // Insert attendance records
     $insertLog = $conn->prepare("
         INSERT INTO attendance_logs
         (
@@ -202,17 +210,25 @@ try {
         )
     ");
 
-    foreach ($employeeRecords as $record) {
+    // Update employee presence status using employee_no
+    $updateStatus = $conn->prepare("
+        UPDATE users
+        SET presence_status = :status
+        WHERE employee_no = :employee_no
+          AND LOWER(TRIM(presence_status)) <> 'on leave'
+    ");
 
-        $state = $record['state'];
+    // ==================================================
+    // 8. INSERT ATTENDANCE LOGS
+    // ==================================================
 
-        $punchType = $punchTypes[$state];
+    foreach ($matchedRecords as $record) {
 
         $params = [
-            ':user_id' => $userId,
-            ':biometric_id' => $employeeNo,
+            ':user_id' => $record['user_id'],
+            ':biometric_id' => $record['employee_no'],
             ':punch_time' => $record['punch_time'],
-            ':punch_type' => $punchType
+            ':punch_type' => $record['punch_type']
         ];
 
         $checkDuplicate->execute($params);
@@ -228,148 +244,173 @@ try {
     }
 
     // ==================================================
-    // 8. UPDATE MIS PRESENCE STATUS
+    // 9. GET LATEST PUNCH PER EMPLOYEE
     // ==================================================
 
+    $latestPunches = [];
 
-// ==================================================
-// 8. UPDATE MIS PRESENCE STATUS USING EMPLOYEE NO
-// ==================================================
+    foreach ($matchedRecords as $record) {
 
-$statusMessage = 'No valid attendance records found.';
-$newStatus = null;
-$latestRecord = null;
+        $employeeNo = $record['employee_no'];
 
-if (!empty($employeeRecords)) {
-
-    // Get latest biometric punch
-    $latestRecord = end($employeeRecords);
-
-    $latestState = $latestRecord['state'];
-
-    $newStatus = $presenceStatuses[$latestState];
-
-    // Update users table using employee_no
-    // Protect employees with On Leave status
-    $updateStatus = $conn->prepare("
-        UPDATE users
-        SET presence_status = :status
-        WHERE employee_no = :employee_no
-          AND LOWER(TRIM(presence_status)) <> 'on leave'
-    ");
-
-    $updateStatus->execute([
-        ':status' => $newStatus,
-        ':employee_no' => $employeeNo
-    ]);
-
-    // Retrieve updated employee status
-    $checkStatus = $conn->prepare("
-        SELECT employee_no, presence_status
-        FROM users
-        WHERE employee_no = :employee_no
-        LIMIT 1
-    ");
-
-    $checkStatus->execute([
-        ':employee_no' => $employeeNo
-    ]);
-
-    $updatedEmployee = $checkStatus->fetch(PDO::FETCH_ASSOC);
-
-    if (!$updatedEmployee) {
-        throw new Exception("Employee number not found.");
+        // Records are sorted oldest to newest,
+        // so the latest record replaces the previous one.
+        $latestPunches[$employeeNo] = $record;
     }
-
-    if (
-        strtolower(trim($updatedEmployee['presence_status'])) === 'on leave'
-    ) {
-        $statusMessage = 'Status protected. Employee is On Leave.';
-    } else {
-        $statusMessage =
-            'Employee ' . $employeeNo .
-            ' presence status updated to ' .
-            $updatedEmployee['presence_status'] . '.';
-    }
-}
-
 
     // ==================================================
-    // 9. COMMIT TRANSACTION
+    // 10. UPDATE PRESENCE STATUS FOR ALL EMPLOYEES
+    // ==================================================
+
+    $employeeResults = [];
+
+    foreach ($latestPunches as $employeeNo => $record) {
+
+        $state = $record['state'];
+
+        $newStatus = $presenceStatuses[$state];
+
+        $updateStatus->execute([
+            ':status' => $newStatus,
+            ':employee_no' => $employeeNo
+        ]);
+
+        // Retrieve actual current status
+        $checkStatus = $conn->prepare("
+            SELECT
+                employee_no,
+                presence_status
+            FROM users
+            WHERE employee_no = :employee_no
+            LIMIT 1
+        ");
+
+        $checkStatus->execute([
+            ':employee_no' => $employeeNo
+        ]);
+
+        $employeeData = $checkStatus->fetch(PDO::FETCH_ASSOC);
+
+        if (!$employeeData) {
+            continue;
+        }
+
+        $currentStatus = $employeeData['presence_status'];
+
+        if (strtolower(trim($currentStatus)) === 'on leave') {
+
+            $protectedEmployees++;
+
+        } else {
+
+            $updatedEmployees++;
+        }
+
+        $employeeResults[] = [
+            'employee_no' => $employeeNo,
+            'punch_type' => $record['punch_type'],
+            'punch_time' => $record['punch_time'],
+            'presence_status' => $currentStatus
+        ];
+    }
+
+    // ==================================================
+    // 11. COMMIT TRANSACTION
     // ==================================================
 
     $conn->commit();
 
     // ==================================================
-    // 10. DISPLAY RESULTS
+    // 12. DISPLAY SYNCHRONIZATION RESULTS
     // ==================================================
 
-    echo "<h2>Biometric Synchronization</h2>";
+    echo "<h2>MIS Biometric Synchronization</h2>";
+
+    echo "<p><strong>Device:</strong> ZKTeco K30</p>";
 
     echo "<p><strong>Database:</strong> Connected</p>";
 
-    echo "<p><strong>Employee No:</strong> " .
-        htmlspecialchars($employeeNo) .
+    echo "<hr>";
+
+    echo "<h3>Synchronization Summary</h3>";
+
+    echo "<p>Total MIS Employees: " .
+        count($employeeMap) .
         "</p>";
 
-    echo "<p><strong>User ID:</strong> " .
-        htmlspecialchars((string)$userId) .
+    echo "<p>Total Device Records: " .
+        count($attendance) .
         "</p>";
 
-    echo "<p><strong>Records Retrieved:</strong> " .
-        count($employeeRecords) .
+    echo "<p>Matched Attendance Records: " .
+        count($matchedRecords) .
         "</p>";
 
-    echo "<p><strong>New Logs Inserted:</strong> " .
+    echo "<p>New Attendance Logs Inserted: " .
         $inserted .
         "</p>";
 
-    echo "<p><strong>Duplicate Logs Skipped:</strong> " .
+    echo "<p>Duplicate Logs Skipped: " .
         $duplicates .
         "</p>";
 
-    echo "<hr>";
-
-    echo "<h3>Latest Biometric Punch</h3>";
-
-    if ($latestRecord !== null) {
-
-        echo "<p><strong>Punch Type:</strong> " .
-            htmlspecialchars(
-                $punchTypes[$latestRecord['state']]
-            ) .
-            "</p>";
-
-        echo "<p><strong>Raw State:</strong> " .
-            htmlspecialchars(
-                (string)$latestRecord['state']
-            ) .
-            "</p>";
-
-        echo "<p><strong>Punch Time:</strong> " .
-            htmlspecialchars(
-                $latestRecord['punch_time']
-            ) .
-            "</p>";
-
-        echo "<p><strong>Mapped Presence Status:</strong> " .
-            htmlspecialchars($newStatus) .
-            "</p>";
-
-    } else {
-
-        echo "<p>No attendance records found.</p>";
-    }
-
-    echo "<hr>";
-
-    echo "<h3>Synchronization Result</h3>";
-
-    echo "<p>" .
-        htmlspecialchars($statusMessage) .
+    echo "<p>Unmatched Biometric Records: " .
+        $unmatchedRecords .
         "</p>";
 
-    echo "<p><strong>Synchronization completed.</strong></p>";
+    echo "<p>Invalid Records Skipped: " .
+        $invalidRecords .
+        "</p>";
+
+    echo "<p>Employees Processed: " .
+        count($employeeResults) .
+        "</p>";
+
+    echo "<p>Employees Protected (On Leave): " .
+        $protectedEmployees .
+        "</p>";
+
+    echo "<hr>";
+
+    echo "<h3>Employee Presence Status Results</h3>";
+
+    echo "<table border='1' cellpadding='8' cellspacing='0'>";
+
+    echo "<tr>";
+    echo "<th>Employee No.</th>";
+    echo "<th>Latest Punch</th>";
+    echo "<th>Punch Time</th>";
+    echo "<th>Presence Status</th>";
+    echo "</tr>";
+
+    foreach ($employeeResults as $result) {
+
+        echo "<tr>";
+
+        echo "<td>" .
+            htmlspecialchars($result['employee_no']) .
+            "</td>";
+
+        echo "<td>" .
+            htmlspecialchars($result['punch_type']) .
+            "</td>";
+
+        echo "<td>" .
+            htmlspecialchars($result['punch_time']) .
+            "</td>";
+
+        echo "<td>" .
+            htmlspecialchars($result['presence_status']) .
+            "</td>";
+
+        echo "</tr>";
+    }
+
+    echo "</table>";
+
+    echo "<hr>";
+
+    echo "<p><strong>Biometric synchronization completed successfully.</strong></p>";
 
 } catch (Throwable $e) {
 
@@ -382,7 +423,7 @@ if (!empty($employeeRecords)) {
         }
     }
 
-    // Roll back database changes
+    // Roll back database operations
     if ($conn->inTransaction()) {
         $conn->rollBack();
     }

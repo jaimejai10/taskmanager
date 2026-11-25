@@ -25,11 +25,6 @@ if ($currentRole === '') {
     http_response_code(403);
     exit('Access denied: user account not found.');
 }
-$canReviewLeave = ($currentRole === 'mishead');
-if (empty($_SESSION['monitor_leave_csrf'])) {
-    $_SESSION['monitor_leave_csrf'] = bin2hex(random_bytes(32));
-}
-$monitorLeaveCsrf = $_SESSION['monitor_leave_csrf'];
 
 function monitorPeriodStart(string $period): string
 {
@@ -64,7 +59,7 @@ function monitorStatusClass(string $status): string
     return strtolower(monitorStatus($status));
 }
 
-function monitorFetch(PDO $conn, string $period, bool $canReviewLeave): array
+function monitorFetch(PDO $conn, string $period): array
 {
     $start = monitorPeriodStart($period);
 
@@ -214,14 +209,14 @@ function monitorFetch(PDO $conn, string $period, bool $canReviewLeave): array
             INNER JOIN users u ON u.user_id = lr.user_id
             WHERE LOWER(TRIM(u.role)) = 'misuser'
               AND (
-                    LOWER(lr.status) = 'pending'
+                    LOWER(TRIM(lr.status)) = 'pending'
                     OR (
-                        LOWER(lr.status) = 'approved'
+                        LOWER(TRIM(lr.status)) = 'approved'
                         AND lr.end_date >= CURDATE()
                     )
               )
             ORDER BY
-                CASE WHEN LOWER(lr.status) = 'pending'
+                CASE WHEN LOWER(TRIM(lr.status)) = 'pending'
                      THEN 0 ELSE 1 END,
                 lr.start_date ASC
             LIMIT 8
@@ -262,7 +257,7 @@ if (isset($_GET['ajax'])) {
         }
 
         echo json_encode(
-            monitorFetch($conn, $period, $canReviewLeave),
+            monitorFetch($conn, $period),
             JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
         );
     } catch (Throwable $e) {
@@ -306,12 +301,11 @@ if (isset($_GET['ajax'])) {
 .age-value { white-space: nowrap; font-weight: 600; }
 
 
-.leave-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
-.leave-action{border:0;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer}
-.leave-action:disabled{opacity:.55;cursor:wait}
-.leave-action.approve{background:#dcfce7;color:#166534}
-.leave-action.reject{background:#fee2e2;color:#991b1b}
 .leave-row{align-items:flex-start}
+.biometric-sync-status{display:flex;align-items:center;gap:8px;padding:0 16px 10px;font-size:11px;color:var(--text-muted,#94a3b8)}
+.biometric-sync-dot{width:7px;height:7px;border-radius:50%;background:#94a3b8;flex:0 0 7px}
+.biometric-sync-status.ok .biometric-sync-dot{background:#22c55e;box-shadow:0 0 7px rgba(34,197,94,.45)}
+.biometric-sync-status.error .biometric-sync-dot{background:#ef4444}
 </style>
 </head>
 <body>
@@ -400,13 +394,17 @@ if (isset($_GET['ajax'])) {
             <h2><span class="panel-icon">👥</span>IT TEAM STATUS</h2>
             <span class="count">LIVE</span>
         </div>
+        <div id="biometricSyncStatus" class="biometric-sync-status" aria-live="polite">
+            <span class="biometric-sync-dot"></span>
+            <span id="biometricSyncText">Connecting to ZKTeco K30...</span>
+        </div>
         <div id="teamItems" class="rows"><div class="empty">Loading team...</div></div>
     </section>
 
     <section class="panel leave-panel">
         <div class="panel-head">
             <div><h2><span class="panel-icon">▦</span>INCOMING LEAVE</h2>
-            <p>Pending and upcoming approved leave</p></div>
+            <p>Pending, approved, and currently active leave</p></div>
             <span id="leaveCount" class="count">0</span>
         </div>
         <div id="leaveItems" class="rows"><div class="empty">Loading leave...</div></div>
@@ -433,7 +431,7 @@ if (isset($_GET['ajax'])) {
 </section>
 
 <footer>
-    <span>LIVE MONITORING · LEAVE REVIEW RESTRICTED TO MIS HEAD</span>
+    <span>LIVE MONITORING · LEAVE STATUS DISPLAY ONLY</span>
     <span id="lastUpdated">Connecting to database...</span>
 </footer>
 </div>
@@ -449,9 +447,6 @@ if (isset($_GET['ajax'])) {
 <button id="soundToggle" class="sound" type="button">🔊 Sound On · activate</button>
 
 <script>
-const canReviewLeave = <?= $canReviewLeave ? 'true' : 'false' ?>;
-const leaveReviewCsrf = <?= json_encode($monitorLeaveCsrf, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
-
 "use strict";
 
 const $ = id => document.getElementById(id);
@@ -713,74 +708,19 @@ function renderLeave(items, error) {
     }
 
     $("leaveItems").innerHTML = items.map(l => {
-        const pending = String(l.status).toLowerCase() === "pending";
         const dates = `${esc(formatShortDate(l.start_date))}${l.end_date && l.end_date !== l.start_date ? " – " + esc(formatShortDate(l.end_date)) : ""}`;
         return `<div class="data-row leave-row">
             <div class="row-main">
                 <strong>${esc(l.full_name || "Unknown employee")} · ${esc(l.leave_type)}</strong>
                 <div class="row-meta">${dates}</div>
                 <div class="row-meta">Reason: ${esc(l.reason || "Not provided")}</div>
-                ${canReviewLeave && pending ? `
-                    <div class="leave-actions">
-                        <button type="button" class="leave-action approve" data-leave-action="approve" data-leave-id="${Number(l.leave_id)}">Approve</button>
-                        <button type="button" class="leave-action reject" data-leave-action="reject" data-leave-id="${Number(l.leave_id)}">Reject</button>
-                    </div>` : ""}
             </div>
             <span class="badge ${String(l.status).toLowerCase() === "approved" ? "completed" : String(l.status).toLowerCase() === "rejected" ? "cancelled" : "pending"}">${esc(l.status)}</span>
         </div>`;
     }).join("");
 }
 
-async function reviewLeave(leaveId, action) {
-    if (!canReviewLeave) {
-        alert("Only the MIS Head can approve or reject leave requests.");
-        return;
-    }
 
-    let remarks = "";
-    if (action === "reject") {
-        remarks = window.prompt("Enter the reason for rejecting this leave request:");
-        if (remarks === null) return;
-        remarks = remarks.trim();
-        if (!remarks) {
-            alert("Please provide a rejection reason.");
-            return;
-        }
-    } else {
-        remarks = window.prompt("Optional approval remarks:", "") ?? "";
-    }
-
-    const buttons = document.querySelectorAll(`[data-leave-id="${leaveId}"]`);
-    buttons.forEach(button => button.disabled = true);
-
-    try {
-        const response = await fetch("action/review_leave.php", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                leave_id: leaveId,
-                action,
-                remarks,
-                csrf: leaveReviewCsrf
-            })
-        });
-        const result = await response.json();
-        if (!response.ok || !result.success) {
-            throw new Error(result.message || "Unable to update leave request.");
-        }
-        alert(result.message);
-        await refreshDashboard();
-    } catch (error) {
-        alert(error.message || "Unable to update leave request.");
-        buttons.forEach(button => button.disabled = false);
-    }
-}
-
-$("leaveItems").addEventListener("click", event => {
-    const button = event.target.closest("[data-leave-action]");
-    if (!button) return;
-    reviewLeave(Number(button.dataset.leaveId), button.dataset.leaveAction);
-});
 
 function renderAttention(items) {
     $("attentionCount").textContent = items.length;
@@ -798,8 +738,61 @@ function renderAttention(items) {
     `).join("");
 }
 
-async function refreshDashboard() {
+let biometricSyncRunning = false;
+
+async function syncBiometric() {
+    if (biometricSyncRunning) return;
+    biometricSyncRunning = true;
+
+    const statusBox = $("biometricSyncStatus");
+    const statusText = $("biometricSyncText");
+
     try {
+        const response = await fetch("biometric/biometric_live_sync.php?_=" + Date.now(), {
+            cache: "no-store",
+            headers: { "Accept": "application/json" }
+        });
+        const responseText = await response.text();
+        let result;
+
+        try {
+            result = JSON.parse(responseText);
+        } catch (parseError) {
+            const preview = responseText.replace(/\\s+/g, " ").slice(0, 140);
+            throw new Error(
+                "Endpoint returned HTML/non-JSON (HTTP " + response.status +
+                "). Check the endpoint path, login session, and PHP errors. Response: " + preview
+            );
+        }
+
+        if (!response.ok || !result.ok) {
+            throw new Error(result.message || "Biometric synchronization failed (HTTP " + response.status + ").");
+        }
+
+        statusBox.classList.remove("error");
+        statusBox.classList.add("ok");
+        statusText.textContent =
+            "ZKTeco connected · " + (result.inserted || 0) +
+            " new punch(es) · Synced " + new Date().toLocaleTimeString();
+    } catch (error) {
+        statusBox.classList.remove("ok");
+        statusBox.classList.add("error");
+        statusText.textContent = "ZKTeco sync unavailable · " +
+            (error.message || "Check device connection");
+        console.error("Biometric live sync failed:", error);
+    } finally {
+        biometricSyncRunning = false;
+    }
+}
+
+let dashboardRefreshRunning = false;
+
+async function refreshDashboard() {
+    if (dashboardRefreshRunning) return;
+    dashboardRefreshRunning = true;
+
+    try {
+        // Dashboard data refresh stays independent of biometric polling.
         const url = new URL(window.location.href);
         url.searchParams.set("ajax", "1");
         url.searchParams.set("period", $("periodFilter").value);
@@ -839,12 +832,21 @@ async function refreshDashboard() {
     } catch (error) {
         console.error("Dashboard refresh failed:", error);
         $("lastUpdated").textContent = "Database/API error — check PHP error log";
+    } finally {
+        dashboardRefreshRunning = false;
     }
 }
 
 $("periodFilter").addEventListener("change", refreshDashboard);
+
+// Keep dashboard data refresh at 10 seconds.
 refreshDashboard();
 setInterval(refreshDashboard, 10000);
+
+// Run biometric synchronization immediately, then every 15 seconds.
+// It runs independently so dashboard refreshes do not trigger extra device reads.
+syncBiometric();
+setInterval(syncBiometric, 15000);
 </script>
 </body>
 </html>
