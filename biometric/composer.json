@@ -1,0 +1,5 @@
+{
+    "require": {
+        "taha-rafi/php-zkteco": "^2.1"
+    }
+}

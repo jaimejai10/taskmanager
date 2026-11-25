@@ -1,0 +1,81 @@
+{
+    "packages": [
+        {
+            "name": "taha-rafi/php-zkteco",
+            "version": "v2.1.0",
+            "version_normalized": "2.1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/taha-rafi/php-zkteco.git",
+                "reference": "bf7805c532a68f6402a701fcf04944ef39cfea16"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/taha-rafi/php-zkteco/zipball/bf7805c532a68f6402a701fcf04944ef39cfea16",
+                "reference": "bf7805c532a68f6402a701fcf04944ef39cfea16",
+                "shasum": ""
+            },
+            "require": {
+                "ext-json": "*",
+                "ext-sockets": "*",
+                "php": ">=8.0.0"
+            },
+            "time": "2026-10-17T16:29:41+00:00",
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "aliases": {
+                        "ZKTeco": "TahaRafi\\ZKTeco\\Laravel\\Facades\\ZKTeco"
+                    },
+                    "providers": [
+                        "TahaRafi\\ZKTeco\\Laravel\\ZKTecoServiceProvider"
+                    ]
+                }
+            },
+            "installation-source": "dist",
+            "autoload": {
+                "psr-4": {
+                    "TahaRafi\\ZKTeco\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Taha Rafi",
+                    "email": "connect@taharafi.com",
+                    "role": "Software Engineer & Lead Developer"
+                }
+            ],
+            "description": "Modern, pure native PHP 8.x dual-protocol (TCP + UDP) communication, Direct Hardware ATT_LOG Attendance Writer, Cloud POST Sync, ADMS Push Server, and Real-Time Webhook library for ZKTeco Biometric Time & Attendance devices with native Comm Key authentication.",
+            "homepage": "https://github.com/taha-rafi/php-zkteco",
+            "keywords": [
+                "Fingerprint",
+                "Socket",
+                "adms",
+                "attendance",
+                "biometrics",
+                "commkey",
+                "iclock",
+                "laravel",
+                "php8",
+                "tcp",
+                "tx628",
+                "udp",
+                "webhooks",
+                "zklibrary",
+                "zksoftware",
+                "zkteco"
+            ],
+            "support": {
+                "issues": "https://github.com/taha-rafi/php-zkteco/issues",
+                "source": "https://github.com/taha-rafi/php-zkteco/tree/v2.1.0"
+            },
+            "install-path": "../taha-rafi/php-zkteco"
+        }
+    ],
+    "dev": true,
+    "dev-package-names": []
+}
