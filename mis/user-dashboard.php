@@ -717,8 +717,8 @@ $portalLabel = 'User Portal';
         }
 
         .user-task-panel table {
-            min-width: 1300px;
-            width: 1300px;
+            min-width: 1360px;
+            width: 1360px;
             table-layout: fixed
         }
 
@@ -788,7 +788,7 @@ $portalLabel = 'User Portal';
 
         .user-task-panel th:nth-child(9),
         .user-task-panel td:nth-child(9) {
-            width: 200px
+            width: 260px
         }
 
         .user-task-panel tbody td {
@@ -905,11 +905,16 @@ $portalLabel = 'User Portal';
 
         .actions {
             display: flex;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;
             align-items: center;
             gap: 5px;
-            white-space: normal;
-            min-width: 0
+            white-space: nowrap;
+            min-width: max-content
+        }
+
+        .actions .btn {
+            flex: 0 0 auto;
+            white-space: nowrap
         }
 
         .user-task-panel .delete-btn {
@@ -1243,24 +1248,6 @@ $portalLabel = 'User Portal';
             </div>
         </div>
     </div>
-    <div class="modal fade" id="takeTaskModal" tabindex="-1" aria-labelledby="takeTaskModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <div><h5 class="modal-title" id="takeTaskModalLabel"><i class="bi bi-person-plus me-2"></i>Take Over This Task?</h5><small class="text-white-50">Task assignment confirmation</small></div>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="take-task-warning mb-3"><i class="bi bi-exclamation-triangle-fill"></i><div><strong>This task is assigned to another MIS user.</strong><div class="small text-secondary mt-1">If you continue, the task will be reassigned to you and its status will change to In Progress.</div></div></div>
-                    <div class="small text-secondary mb-1">TASK</div><div class="fw-bold mb-3" id="takeTaskTitle"></div>
-                    <div class="small text-secondary mb-1">CURRENTLY ASSIGNED TO</div><div class="fw-semibold" id="takeTaskOwner"></div>
-                    <p class="small text-secondary mt-3 mb-0">Do you want to take responsibility for this task?</p>
-                </div>
-                <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">No, Keep Assigned</button><button type="button" class="btn btn-success" id="confirmTakeTask"><i class="bi bi-check2-circle me-1"></i>Yes, Take Task</button></div>
-            </div>
-        </div>
-    </div>
-
     <div class="modal fade" id="deleteTaskModal" tabindex="-1" aria-labelledby="deleteTaskModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -1294,8 +1281,6 @@ $portalLabel = 'User Portal';
 
         const attachmentModal = new bootstrap.Modal('#attachmentModal');
         const deleteTaskModal = new bootstrap.Modal('#deleteTaskModal');
-        const takeTaskModal = new bootstrap.Modal('#takeTaskModal');
-        let pendingAcceptButton = null;
         let selectedDeleteTaskId = null;
         document.querySelectorAll('.attachment-preview-btn').forEach(button => button.addEventListener('click', () => {
             const url = button.dataset.attachmentUrl;
@@ -1382,17 +1367,6 @@ $portalLabel = 'User Portal';
             );
         }
         document.getElementById('modalStatus').addEventListener('change', syncUpdateFields);
-        const acceptedTask = new URLSearchParams(location.search).get('accepted_task');
-        if (acceptedTask) {
-            const acceptedButton = [...document.querySelectorAll('.update-btn')].find(b => {
-                try {
-                    return String(JSON.parse(b.dataset.task).task_id) === String(acceptedTask);
-                } catch (e) {
-                    return false;
-                }
-            });
-            if (acceptedButton) acceptedButton.click();
-        }
         document.querySelectorAll('.reassign-btn').forEach(b => b.addEventListener('click', () => {
             document.getElementById('reassignId').value = b.dataset.id;
             document.getElementById('reassignTitle').textContent = 'Reassign: ' + b.dataset.title;
@@ -1438,37 +1412,20 @@ $portalLabel = 'User Portal';
                 const r = await fetch(location.pathname + location.search, { method: 'POST', body: fd });
                 const j = await r.json();
                 if (!r.ok || !j.ok) throw Error(j.message || 'Unable to accept task.');
-                takeTaskModal.hide();
                 message(j.message);
-                setTimeout(() => {
-                    location.href = location.pathname + '?accepted_task=' + encodeURIComponent(button.dataset.id);
-                }, 450);
+                setTimeout(() => location.reload(), 450);
             } catch (x) {
                 alert(x.message);
                 button.disabled = false;
             }
         }
 
+        // Accept Task performs only the acceptance/assignment action.
+        // No confirmation or task-update modal is opened; the user can update
+        // the task status later after performing the actual work.
         document.querySelectorAll('.accept-btn').forEach(button => button.addEventListener('click', () => {
-            const assignedUserId = Number(button.dataset.assignedUser || 0);
-            const assignedName = button.dataset.assignedName || 'another MIS user';
-            // Ask for explicit confirmation only when taking a task assigned to someone else.
-            if (assignedUserId > 0 && assignedUserId !== <?= (int)$userId ?>) {
-                pendingAcceptButton = button;
-                document.getElementById('takeTaskTitle').textContent = button.dataset.title || 'Selected task';
-                document.getElementById('takeTaskOwner').textContent = assignedName;
-                takeTaskModal.show();
-                return;
-            }
             submitTaskAcceptance(button);
         }));
-
-        document.getElementById('confirmTakeTask').addEventListener('click', () => {
-            if (!pendingAcceptButton) return;
-            const button = pendingAcceptButton;
-            pendingAcceptButton = null;
-            submitTaskAcceptance(button);
-        });
 
         async function send(form) {
             const r = await fetch(location.pathname, {
