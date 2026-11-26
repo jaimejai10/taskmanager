@@ -302,13 +302,14 @@ try {
                         }
 
                         if (preg_match('/^639[0-9]{9}$/', $phone)) {
-                            $message = "MIS TASK REASSIGNMENT\n"
-                                . "Your MIS Service Request has been reassigned.\n"
-                                . "Report No.: " . ($taskDetails['report_no'] ?? $taskId) . "\n"
-                                . "Task: " . ($taskDetails['task_title'] ?? 'MIS Service Request') . "\n"
-                                . "Previous Assigned: " . ($taskDetails['previous_assigned_name'] ?: 'MIS Team') . "\n"
-                                . "New Assigned: " . ($taskDetails['new_assigned_name'] ?: 'MIS Team') . "\n"
-                                . "Our MIS team will continue working on your request. Thank you.";
+                            $message = "MIS HELPDESK: Your request (SR No: "
+                                . ($taskDetails['report_no'] ?? $taskId)
+                                . " – " . ($taskDetails['task_title'] ?? 'MIS Service Request')
+                                . ") has been reassigned from "
+                                . ($taskDetails['previous_assigned_name'] ?: 'MIS Team')
+                                . " to "
+                                . ($taskDetails['new_assigned_name'] ?: 'MIS Team')
+                                . " for continued assistance. Thank you.";
 
                             if (send_sms($phone, $message) === false) {
                                 error_log("MIS reassignment SMS failed for task ID {$taskId}.");
