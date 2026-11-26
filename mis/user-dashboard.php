@@ -201,6 +201,82 @@ try {
             );
             $up->execute($params);
 
+            // Notify the requester only after a successful status update.
+            // Acceptance intentionally has no SMS, and requester_no is the only
+            // permitted destination (no company mobile fallback).
+            if ($up->rowCount() === 1 && in_array($status, ['Complete', 'Incomplete', 'On Hold'], true)) {
+                $requesterNumber = '';
+                $notificationDetails = [
+                    'report_no' => $taskId,
+                    'task_title' => 'MIS Service Request'
+                ];
+
+                $notifySelect = [];
+                $notifySelect[] = $fields['requester_no']
+                    ? "t.`{$fields['requester_no']}` AS requester_no"
+                    : "NULL AS requester_no";
+                $notifySelect[] = $fields['report_id']
+                    ? "t.`{$fields['report_id']}` AS report_no"
+                    : "t.task_id AS report_no";
+                $notifySelect[] = $fields['title']
+                    ? "t.`{$fields['title']}` AS task_title"
+                    : "'' AS task_title";
+
+                $notifyQuery = $conn->prepare(
+                    "SELECT " . implode(', ', $notifySelect) . " FROM tasks t WHERE t.task_id = ?"
+                );
+                $notifyQuery->execute([$taskId]);
+                $notificationDetails = $notifyQuery->fetch() ?: $notificationDetails;
+                $requesterNumber = trim((string)($notificationDetails['requester_no'] ?? ''));
+
+                if ($requesterNumber !== '') {
+                    try {
+                        require_once __DIR__ . '/../includes/sms.php';
+
+                        if (function_exists('send_sms')) {
+                            $phone = preg_replace('/[^0-9+]/', '', $requesterNumber);
+
+                            if (str_starts_with($phone, '+63')) {
+                                $phone = '63' . substr($phone, 3);
+                            } elseif (str_starts_with($phone, '09')) {
+                                $phone = '63' . substr($phone, 1);
+                            } elseif (str_starts_with($phone, '9') && strlen($phone) === 10) {
+                                $phone = '63' . $phone;
+                            }
+
+                            if (preg_match('/^639[0-9]{9}$/', $phone)) {
+                                $reportNo = (string)($notificationDetails['report_no'] ?? $taskId);
+                                $taskTitle = trim((string)($notificationDetails['task_title'] ?? ''));
+                                if ($taskTitle === '') {
+                                    $taskTitle = 'MIS Service Request';
+                                }
+
+                                if ($status === 'Complete') {
+                                    $message = "MIS HELPDESK: Your request (SR No: {$reportNo} – {$taskTitle}) has been successfully completed. Our MIS team has resolved the reported issue. Thank you for your patience.";
+                                } elseif ($status === 'Incomplete') {
+                                    $reason = trim((string)($values['recommendation'] ?? ''));
+                                    $message = "MIS HELPDESK: Your request (SR No: {$reportNo} – {$taskTitle}) is marked as INCOMPLETE. Reason: {$reason}. Please coordinate with the MIS team for the next steps. Thank you.";
+                                } else {
+                                    $reason = trim((string)($values['recommendation'] ?? ''));
+                                    $message = "MIS HELPDESK: Your request (SR No: {$reportNo} – {$taskTitle}) is temporarily ON HOLD. Reason: {$reason}. We will provide an update once work can resume. Thank you for your understanding.";
+                                }
+
+                                if (send_sms($phone, $message) === false) {
+                                    error_log("MIS status SMS failed for task ID {$taskId} (status: {$status}).");
+                                }
+                            } else {
+                                error_log("MIS status SMS skipped: invalid requester_no for task ID {$taskId}.");
+                            }
+                        } else {
+                            error_log('MIS status SMS skipped: send_sms() function is unavailable.');
+                        }
+                    } catch (Throwable $smsError) {
+                        // Notification failure must never undo the saved task update.
+                        error_log('MIS status SMS error: ' . $smsError->getMessage());
+                    }
+                }
+            }
+
             reply(true, 'Task updated successfully.');
         }
 
@@ -829,8 +905,27 @@ $portalLabel = 'User Portal';
 
         .actions {
             display: flex;
+            flex-wrap: wrap;
+            align-items: center;
             gap: 5px;
-            white-space: nowrap
+            white-space: normal;
+            min-width: 0
+        }
+
+        .user-task-panel .delete-btn {
+            width: 30px;
+            height: 30px;
+            min-width: 30px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 30px
+        }
+
+        .user-task-panel .delete-btn i {
+            font-size: 14px;
+            line-height: 1
         }
 
         .user-task-panel .btn-sm {
@@ -1058,7 +1153,7 @@ $portalLabel = 'User Portal';
                                                     <button class="btn btn-outline-secondary btn-sm" disabled title="This task is not available for acceptance or updating."><i class="bi bi-lock"></i> Unavailable</button>
                                                 <?php endif; ?>
                                                 <button class="btn btn-outline-secondary btn-sm reassign-btn" data-id="<?= $t['task_id'] ?>" data-title="<?= h($t['title'] ?: 'Task') ?>"><i class="bi bi-arrow-left-right"></i> Reassign</button>
-                                                <button type="button" class="btn btn-outline-danger btn-sm delete-btn" data-id="<?= $t['task_id'] ?>" data-title="<?= h($t['title'] ?: 'Untitled task') ?>" <?= (!$mine && !in_array($role, ['mishead', 'admin', 'administrator'], true)) ? 'disabled title="Only the assigned MIS user or MIS Head/Admin can delete this task."' : '' ?>><i class="bi bi-trash"></i> Delete</button>
+                                                <button type="button" class="btn btn-outline-danger btn-sm delete-btn" data-id="<?= $t['task_id'] ?>" data-title="<?= h($t['title'] ?: 'Untitled task') ?>" aria-label="Delete task" title="<?= (!$mine && !in_array($role, ['mishead', 'admin', 'administrator'], true)) ? 'Only the assigned MIS user or MIS Head/Admin can delete this task.' : 'Delete task' ?>" <?= (!$mine && !in_array($role, ['mishead', 'admin', 'administrator'], true)) ? 'disabled' : '' ?>><i class="bi bi-trash" aria-hidden="true"></i></button>
                                             </div>
                                         </td>
                                     </tr><?php endforeach; ?>
