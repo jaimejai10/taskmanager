@@ -140,12 +140,13 @@ try {
             }
             $current = strtolower(trim((string)$task['status']));
             $status = trim($_POST['status'] ?? '');
-            $allowedStatuses = ['In Progress', 'Complete', 'Incomplete', 'On Hold'];
-            if (!in_array($status, $allowedStatuses, true)) {
-                reply(false, 'Please select a valid task status.', 422);
-            }
-            if (strtolower($status) === $current) {
-                reply(false, 'Please select a different status.', 422);
+            $transitions = [
+                'in progress' => ['Complete', 'Incomplete', 'On Hold'],
+                'incomplete'  => ['In Progress'],
+                'on hold'     => ['In Progress']
+            ];
+            if (!in_array($status, $transitions[$current] ?? [], true)) {
+                reply(false, "That status change is not allowed for the task current status.", 422);
             }
 
             // Only save fields relevant to the selected status. This preserves
@@ -1152,7 +1153,7 @@ $portalLabel = 'User Portal';
                                                 <?php if (strtolower(trim($t['status'])) === 'pending'): ?>
                                                     <button type="button" class="btn btn-success btn-sm accept-btn" data-id="<?= $t['task_id'] ?>" data-title="<?= h($t['title'] ?: 'Task') ?>" data-assigned-user="<?= (int)$t['assigned_user_id'] ?>" data-assigned-name="<?= h($t['assigned_name'] ?: 'Unassigned') ?>"><i class="bi bi-check2-circle"></i> Accept Task</button>
                                                 <?php elseif ($mine && in_array(strtolower(trim($t['status'])), ['in progress', 'incomplete', 'on hold'], true)): ?>
-                                                    <button class="btn btn-primary btn-sm update-btn" data-task="<?= h(json_encode(array_merge($t, ['attachment_url' => attachmentUrl($t['attachment'] ?? '')]), JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG)) ?>"><i class="bi bi-pencil-square"></i> Update</button>
+                                                    <button class="btn btn-primary btn-sm update-btn" data-task="<?= h(json_encode($t, JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG)) ?>"><i class="bi bi-pencil-square"></i> Update</button>
                                                 <?php else: ?>
                                                     <button class="btn btn-outline-secondary btn-sm" disabled title="This task is not available for acceptance or updating."><i class="bi bi-lock"></i> Unavailable</button>
                                                 <?php endif; ?>
@@ -1305,43 +1306,15 @@ $portalLabel = 'User Portal';
             document.getElementById('modalReport').textContent = 'Report No. ' + (t.report_id || t.task_id);
             document.getElementById('modalTitle').textContent = t.title || 'Untitled task';
             document.getElementById('modalCompany').textContent = t.company_name || '—';
-            document.getElementById('modalDescription').textContent = t.description || 'No task description provided.';
-            const attachmentWrap = document.getElementById('modalAttachmentWrap');
-            const attachmentLink = document.getElementById('modalAttachmentLink');
-            if (t.attachment_url) {
-                attachmentLink.href = t.attachment_url;
-                attachmentLink.textContent = t.attachment ? String(t.attachment).split(/[\\\\/]/).pop() : 'Open attachment';
-                attachmentWrap.classList.remove('d-none');
-            } else {
-                attachmentLink.removeAttribute('href');
-                attachmentWrap.classList.add('d-none');
-            }
-
-            const previousHoldWrap = document.getElementById('previousHoldReasonWrap');
-            const previousHoldReason = document.getElementById('previousHoldReason');
-            if (String(t.status || '').toLowerCase() === 'on hold' && t.recommendation) {
-                previousHoldReason.textContent = t.recommendation;
-                previousHoldWrap.classList.remove('d-none');
-            } else {
-                previousHoldReason.textContent = '';
-                previousHoldWrap.classList.add('d-none');
-            }
-
             const statusSelect = document.getElementById('modalStatus');
             statusSelect.innerHTML = '';
-            const placeholder = document.createElement('option');
-            placeholder.value = '';
-            placeholder.textContent = 'Select new status';
-            placeholder.disabled = true;
-            placeholder.selected = true;
-            statusSelect.appendChild(placeholder);
-            ['In Progress', 'Complete', 'Incomplete', 'On Hold'].forEach(v => {
+            const choices = (String(t.status || '').toLowerCase() === 'in progress') ? ['Complete', 'Incomplete', 'On Hold'] : ['In Progress'];
+            choices.forEach(v => {
                 const o = document.createElement('option');
                 o.value = v;
                 o.textContent = v;
                 statusSelect.appendChild(o);
             });
-            statusSelect.value = '';
             document.getElementById('modalDiagnosis').value = t.diagnosis || '';
             document.getElementById('modalAction').value = t.action_taken || '';
             document.getElementById('modalRecommendation').value = t.recommendation || '';

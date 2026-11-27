@@ -70,6 +70,7 @@ function monitorFetch(PDO $conn, string $period): array
             COALESCE(SUM(LOWER(TRIM(status)) = 'completed'), 0) AS completed,
             COALESCE(SUM(LOWER(TRIM(status)) = 'pending'), 0) AS pending,
             COALESCE(SUM(LOWER(TRIM(status)) IN ('assigned','in progress','in_progress')), 0) AS in_progress,
+            COALESCE(SUM(LOWER(TRIM(status)) IN ('on hold','on_hold')), 0) AS on_hold,
             COALESCE(SUM(
                 due_date IS NOT NULL
                 AND due_date < NOW()
@@ -144,7 +145,7 @@ function monitorFetch(PDO $conn, string $period): array
             END AS reason
         FROM tasks t
         LEFT JOIN companies c ON c.comp_id = t.company_id
-        WHERE LOWER(TRIM(t.status)) IN ('pending', 'on going', 'in progress')
+        WHERE LOWER(TRIM(t.status)) IN ('pending', 'on hold', 'in progress')
         AND t.due_date IS NOT NULL
         AND t.due_date < CURDATE()
         ORDER BY
@@ -238,6 +239,7 @@ function monitorFetch(PDO $conn, string $period): array
             'completed' => (int)($metrics['completed'] ?? 0),
             'pending' => (int)($metrics['pending'] ?? 0),
             'in_progress' => (int)($metrics['in_progress'] ?? 0),
+            'on_hold' => (int)($metrics['on_hold'] ?? 0),
             'overdue' => (int)($metrics['overdue'] ?? 0)
         ],
         'requests' => $requests,
@@ -283,6 +285,22 @@ if (isset($_GET['ajax'])) {
 <title>MIS Helpdesk - Live Monitoring</title>
 <link rel="stylesheet" href="css/monitor.css">
 <style>
+/* Keep all six summary cards on one horizontal row on desktop. */
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 10px;
+}
+.metric-card { min-width: 0; }
+
+/* Stack cards on narrower screens to keep them readable. */
+@media (max-width: 1100px) {
+    .metric-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+    .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* Overdue summary card accent; all other dashboard styling stays in css/monitor.css. */
 .metric-card.red { background: linear-gradient(110deg, #b91c1c, #450a0a); border-color: rgba(255, 92, 101, 0.45); color: #fff; }
 .metric-card.red .icon { color: #ffb4b8; }
@@ -368,6 +386,10 @@ if (isset($_GET['ajax'])) {
         <article class="metric-card purple">
             <div class="icon">⚙</div>
             <div><div id="progressTasks" class="number">0</div><div class="label">In Progress</div></div>
+        </article>
+        <article class="metric-card teal">
+            <div class="icon">Ⅱ</div>
+            <div><div id="onHoldTasks" class="number">0</div><div class="label">On Hold</div></div>
         </article>
         <article class="metric-card red">
             <div class="icon">⚠</div>
@@ -821,6 +843,7 @@ async function refreshDashboard() {
         $("completedTasks").textContent = data.metrics.completed;
         $("pendingTasks").textContent = data.metrics.pending;
         $("progressTasks").textContent = data.metrics.in_progress;
+        $("onHoldTasks").textContent = data.metrics.on_hold ?? 0;
         $("overdueTasks").textContent = data.metrics.overdue ?? 0;
 
         renderRequests(data.requests || []);
