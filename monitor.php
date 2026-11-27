@@ -110,7 +110,20 @@ function monitorFetch(PDO $conn, string $period): array
         FROM tasks t
         LEFT JOIN companies c ON c.comp_id = t.company_id
         LEFT JOIN users assigned_user ON assigned_user.user_id = t.assigned_id
-        ORDER BY t.created_at DESC, t.task_id DESC
+        ORDER BY
+            CASE LOWER(TRIM(t.status))
+                WHEN 'pending' THEN 1
+                WHEN 'in progress' THEN 2
+                WHEN 'in_progress' THEN 2
+                WHEN 'assigned' THEN 2
+                WHEN 'ongoing' THEN 2
+                WHEN 'on hold' THEN 3
+                WHEN 'complete' THEN 4
+                WHEN 'completed' THEN 4
+                ELSE 5
+            END,
+            t.created_at DESC,
+            t.task_id DESC
         LIMIT 10;
     ")->fetchAll();
 
@@ -125,28 +138,19 @@ function monitorFetch(PDO $conn, string $period): array
             t.assigned_id,
             c.comp_name AS company_name,
             CASE
-                WHEN t.due_date IS NOT NULL
-                     AND t.due_date < NOW()
-                     AND (t.assigned_id IS NULL OR t.assigned_id = 0)
+                WHEN t.assigned_id IS NULL OR t.assigned_id = 0
                     THEN 'Overdue and unassigned'
-                WHEN t.due_date IS NOT NULL AND t.due_date < NOW()
-                    THEN 'Overdue'
-                ELSE 'Unassigned'
+                ELSE 'Overdue'
             END AS reason
         FROM tasks t
         LEFT JOIN companies c ON c.comp_id = t.company_id
-        WHERE LOWER(TRIM(t.status)) NOT IN ('completed', 'cancelled')
-          AND (
-              (t.due_date IS NOT NULL AND t.due_date < NOW())
-              OR t.assigned_id IS NULL
-              OR t.assigned_id = 0
-          )
+        WHERE LOWER(TRIM(t.status)) IN ('pending', 'on going', 'in progress')
+        AND t.due_date IS NOT NULL
+        AND t.due_date < CURDATE()
         ORDER BY
-            CASE WHEN t.due_date IS NOT NULL AND t.due_date < NOW()
-                 THEN 0 ELSE 1 END,
             t.due_date ASC,
             t.task_id DESC
-        LIMIT 3
+        LIMIT 3;
     ")->fetchAll();
 
     // IT Team Status: approved leave takes priority only during the actual leave dates.
@@ -282,6 +286,13 @@ if (isset($_GET['ajax'])) {
 /* Overdue summary card accent; all other dashboard styling stays in css/monitor.css. */
 .metric-card.red { background: linear-gradient(110deg, #b91c1c, #450a0a); border-color: rgba(255, 92, 101, 0.45); color: #fff; }
 .metric-card.red .icon { color: #ffb4b8; }
+
+/* On Hold badge uses the same orange color shown in the supplied reference. */
+.badge.on-hold {
+    background: #B45309;
+    color: #ffffff;
+    border: 1px solid #B45309;
+}
 
 /* Additional monitoring table fields */
 .priority-badge {
@@ -603,9 +614,10 @@ function showPopup(task) {
 }
 
 function statusClass(status) {
-    const s = String(status || "").toLowerCase();
+    const s = String(status || "").trim().toLowerCase();
     if (s === "new") return "new";
     if (s === "completed" || s === "complete") return "completed";
+    if (s === "on hold" || s === "on_hold") return "on-hold";
     if (s === "ongoing" || s === "assigned" || s.includes("progress")) return "ongoing";
     return "pending";
 }
