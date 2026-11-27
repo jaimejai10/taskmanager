@@ -301,7 +301,23 @@ if ($request) {
                         <?php endforeach; ?>
                     </div>
 
-                    <?php if (in_array($displayStatus, ['Incomplete', 'On Hold'], true)): ?>
+                    <?php if ($displayStatus === 'On Hold'): ?>
+                        <?php if (!empty(trim((string)($request['recommendation'] ?? '')))): ?>
+                            <div class="detail-item" style="margin-top:16px;">
+                                <span class="detail-label">Reason for On Hold</span>
+                                <div class="detail-value">
+                                    <?= nl2br(h($request['recommendation'])) ?>
+                                </div>
+                            </div>
+                        <?php else: ?>
+                            <p class="hint">
+                                The request is currently on hold. The reason has not been provided.
+                            </p>
+                        <?php endif; ?>
+                        <p class="hint">
+                            This request may return to In Progress when the technician resumes work.
+                        </p>
+                    <?php elseif ($displayStatus === 'Incomplete'): ?>
                         <p class="hint">
                             This request may return to In Progress when the technician resumes work.
                         </p>

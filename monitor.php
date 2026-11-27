@@ -147,11 +147,11 @@ function monitorFetch(PDO $conn, string $period): array
         LEFT JOIN companies c ON c.comp_id = t.company_id
         WHERE LOWER(TRIM(t.status)) IN ('pending', 'on hold', 'in progress')
         AND t.due_date IS NOT NULL
-        AND t.due_date < CURDATE()
+        AND t.due_date < CURDATE() + INTERVAL 1 DAY
         ORDER BY
             t.due_date ASC,
             t.task_id DESC
-        LIMIT 3;
+        LIMIT 2;
     ")->fetchAll();
 
     // IT Team Status: approved leave takes priority only during the actual leave dates.
