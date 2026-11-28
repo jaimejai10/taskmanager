@@ -67,7 +67,7 @@ function monitorFetch(PDO $conn, string $period): array
     $stmt = $conn->prepare("
         SELECT
             COUNT(*) AS total,
-            COALESCE(SUM(LOWER(TRIM(status)) = 'completed'), 0) AS completed,
+            COALESCE(SUM(LOWER(TRIM(status)) = 'complete'), 0) AS completed,
             COALESCE(SUM(LOWER(TRIM(status)) = 'pending'), 0) AS pending,
             COALESCE(SUM(LOWER(TRIM(status)) IN ('assigned','in progress','in_progress')), 0) AS in_progress,
             COALESCE(SUM(LOWER(TRIM(status)) IN ('on hold','on_hold')), 0) AS on_hold,

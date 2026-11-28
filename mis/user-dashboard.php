@@ -258,7 +258,7 @@ try {
                                     $message = "MIS HELPDESK: Your request (SR No: {$reportNo} – {$taskTitle}) is marked as INCOMPLETE. Reason: {$reason}. Please coordinate with the MIS team for the next steps. Thank you.";
                                 } else {
                                     $reason = trim((string)($values['recommendation'] ?? ''));
-                                    $message = "MIS HELPDESK: Your request (SR No: {$reportNo} – {$taskTitle}) is temporarily ON HOLD. Reason: {$reason}. We will provide an update once work can resume. Thank you for your understanding.";
+                                    $message = "MIS HELPDESK: Your request (SR No: {$reportNo} – {$taskTitle}) is temporarily ON HOLD. Reason: {$reason}. We will provide an update once work resumes. Thank you for your understanding.";
                                 }
 
                                 if (send_sms($phone, $message) === false) {
